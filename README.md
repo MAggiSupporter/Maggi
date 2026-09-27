@@ -183,7 +183,7 @@ Enter/Return.
 | **Mac:** `No such file or directory` | You probably pressed Return before dragging the file in. Try Step 4 again: type `bash ` (with the space), drag the file in, then press Return. |
 | **Mac:** a box offers to install “command line developer tools” | Click **Cancel**. Install Python from python.org (Step 1), then try Step 4 again. |
 | **“That doesn't look like an OpenRouter key”** | Copy the key again from OpenRouter. It starts with `sk-or-`. |
-| **“Installing failed”** | Check that you're connected to the internet, then try Step 4 again. |
+| **“Installing failed”** | Check that you're connected to the internet, then try Step 4 again. If the message mentions **ARM processors**, follow the instructions it gives (this affects some newer Windows laptops, such as Snapdragon ones). |
 | In the app: **“No OpenRouter API key found”** | Close the black/Terminal window, do Step 4 again, and paste your key when asked. |
 | In the app: **“OpenRouter rejected your API key (401)”** | Create a new key (Step 2), close the black/Terminal window, do Step 4 again, and paste the new key. |
 | In the app: **“not have enough credit (402)”** | Add credit at <https://openrouter.ai/settings/credits>. |

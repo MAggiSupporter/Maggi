@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import sysconfig
 import venv
 from pathlib import Path
 
@@ -85,9 +86,9 @@ def ask_for_key(input_fn=input) -> None:
     saved = read_saved_key()
     if saved:
         say(f"Your key is already saved (it ends in ...{saved[-4:]}).")
-        say("Press Enter to keep it, or paste a new key and press Enter to replace it.")
+        say("Press Enter (Return on a Mac) to keep it, or paste a new key and press Enter to replace it.")
     else:
-        say("Paste your OpenRouter API key below, then press Enter.")
+        say("Paste your OpenRouter API key below, then press Enter (Return on a Mac).")
         say("  - To paste on Windows: press Ctrl+V, or right-click.")
         say("  - To paste on a Mac: press Command+V.")
         say("The key will show on screen. That's fine: it is only saved on this computer.")
@@ -143,11 +144,23 @@ def _create_and_install() -> bool:
     return result.returncode == 0
 
 
+WINDOWS_ARM_HELP = (
+    "Your Python is the version for Windows computers with ARM processors (such as "
+    "Snapdragon). Some parts this app needs aren't available for that version yet. Fix: "
+    "uninstall Python (Settings > Apps), then install it again from "
+    "https://www.python.org/downloads/windows/ choosing the 'Windows installer (64-bit)' "
+    "download, not the ARM64 one. Then start the app again. It runs fine that way."
+)
+
+
 def install() -> None:
     heading("STEP 2 OF 3: INSTALLING WHAT THE APP NEEDS")
     if _create_and_install():
         say("Done.")
         return
+    if sysconfig.get_platform() == "win-arm64":
+        shutil.rmtree(VENV_DIR, ignore_errors=True)
+        raise SystemExit("Installing failed. " + WINDOWS_ARM_HELP)
     say()
     say("That didn't work. Trying once more from scratch...")
     shutil.rmtree(VENV_DIR, ignore_errors=True)

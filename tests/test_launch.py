@@ -98,3 +98,21 @@ def test_no_input_available_and_no_saved_key_exits_cleanly(secrets):
 
     with pytest.raises(SystemExit):
         launch.ask_for_key(closed)
+
+
+def test_windows_arm_install_failure_gives_specific_advice(monkeypatch, tmp_path):
+    monkeypatch.setattr(launch, "VENV_DIR", tmp_path / ".venv")
+    monkeypatch.setattr(launch, "_create_and_install", lambda: False)
+    monkeypatch.setattr(launch.sysconfig, "get_platform", lambda: "win-arm64")
+    with pytest.raises(SystemExit) as info:
+        launch.install()
+    assert "64-bit" in str(info.value)
+
+
+def test_install_retries_once_from_scratch(monkeypatch, tmp_path):
+    attempts = []
+    monkeypatch.setattr(launch, "VENV_DIR", tmp_path / ".venv")
+    monkeypatch.setattr(launch, "_create_and_install", lambda: attempts.append(1) or len(attempts) == 2)
+    monkeypatch.setattr(launch.sysconfig, "get_platform", lambda: "macosx-14.0-arm64")
+    launch.install()
+    assert len(attempts) == 2
