@@ -3,7 +3,6 @@
 [server]
 # Only accept connections from this computer, not from other devices on your network.
 address = "localhost"
-port = 8501
 # Skip Streamlit's first-run "enter your email" prompt in the terminal.
 showEmailPrompt = false
 

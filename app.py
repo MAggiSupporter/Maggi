@@ -22,6 +22,11 @@ MEMBERS = config.MEMBERS
 MEMBER_BY_KEY = {m.key: m for m in MEMBERS}
 ALL_KEYS = [m.key for m in MEMBERS]
 PLACEHOLDER_KEY_MARKER = "your-key-here"
+RESTART_TO_ADD_KEY = (
+    "To add your key: close the black window (Windows) or Terminal window (Mac) that "
+    "is running this app, start the app again the same way you did before, and paste "
+    "your key when it asks. See README.md, step 4."
+)
 # Where Streamlit looks for secrets: the folder you run from, and this app's folder.
 SECRETS_FILES = (
     Path(".streamlit/secrets.toml"),
@@ -73,9 +78,8 @@ def get_api_key() -> tuple[str | None, str]:
     # Check the secrets file first. Streamlit also copies its values into
     # environment variables, so checking those first would mislabel the source.
     unreadable = (
-        "Your .streamlit/secrets.toml file could not be read. Make sure it has "
-        'exactly one line like OPENROUTER_API_KEY = "sk-or-..." (with the quotes), '
-        "then restart the app."
+        "Your saved key file (.streamlit/secrets.toml) could not be read. "
+        + RESTART_TO_ADD_KEY
     )
     try:
         key = str(st.secrets.get("OPENROUTER_API_KEY", "")).strip()
@@ -92,14 +96,11 @@ def get_api_key() -> tuple[str | None, str]:
         key = os.environ.get("OPENROUTER_API_KEY", "").strip()
         source = "the OPENROUTER_API_KEY environment variable"
     if not key:
-        return None, (
-            "No OpenRouter API key found. Follow step 3 in the README to add one, "
-            "then restart the app."
-        )
+        return None, "No OpenRouter API key found. " + RESTART_TO_ADD_KEY
     if PLACEHOLDER_KEY_MARKER in key:
         return None, (
-            "Your .streamlit/secrets.toml still contains the example placeholder. "
-            "Replace it with your real OpenRouter key, then restart the app."
+            "Your saved key file still contains the example placeholder, not a real key. "
+            + RESTART_TO_ADD_KEY
         )
     return key, source
 

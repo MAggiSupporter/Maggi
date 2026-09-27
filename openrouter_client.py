@@ -76,8 +76,10 @@ def _error_message(status: int, body, model: str) -> str:
         return f"OpenRouter rejected the request as invalid (400).{detail_text}"
     if status == 401:
         return (
-            "OpenRouter rejected your API key (401). Check that it was copied "
-            "completely and has not been deleted or disabled at https://openrouter.ai/settings/keys"
+            "OpenRouter rejected your API key (401). It may have been copied incompletely, "
+            "or deleted or disabled. Create a new key at https://openrouter.ai/settings/keys, "
+            "then close the window that is running this app, start the app again, and "
+            "paste the new key when it asks."
         )
     if status == 402:
         return (
@@ -116,7 +118,7 @@ def chat_completion(
 ) -> dict:
     """Send one chat request. Returns {"text", "finish_reason", "usage", "served_model"}."""
     if not api_key:
-        raise OpenRouterError("No OpenRouter API key is set. See the README, step 3.")
+        raise OpenRouterError("No OpenRouter API key is set. See README.md, step 4.")
 
     payload = {
         "model": model,
