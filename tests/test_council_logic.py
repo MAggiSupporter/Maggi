@@ -292,3 +292,10 @@ def test_build_report():
     assert "## Result: YES" in report
     assert "Changed NO → YES" in report
     assert logic.EXAMPLE_CASE["motion"] in report
+
+
+@pytest.mark.parametrize("name", list(config.PRESETS))
+def test_every_model_set_uses_three_different_companies(name):
+    preset = config.PRESETS[name]
+    assert set(preset) == {m.key for m in MEMBERS}
+    assert len({logic.provider_of(model) for model in preset.values()}) == 3

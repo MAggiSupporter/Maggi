@@ -89,8 +89,10 @@ most it could cost.
 3. Open the new folder, called `Maggi-claude-decision-council-app-os549i`. If there's another
    folder with the same name inside, open that one too. You should see files such as
    `app.py`, `start-windows` and `start-mac`.
-
-You don't need to rename or move the folder.
+4. **Move the folder to your Documents folder**, so it doesn't get lost or deleted when you
+   tidy up Downloads. Drag the folder that contains `start-windows` and `start-mac` onto
+   **Documents** in the left-hand list of the File Explorer (Windows) or Finder (Mac) window.
+   Do this now, before Step 4.
 
 ---
 
@@ -107,7 +109,8 @@ You don't need to rename or move the folder.
    then press **Enter**.
 4. The first time, it installs what the app needs. This takes a few minutes and may look
    stuck. Just wait.
-5. Your web browser opens the app. 🎉
+5. It puts a **Decision Council** shortcut on your Desktop, then your web browser opens the
+   app. 🎉
 
 ### On a Mac
 
@@ -117,12 +120,13 @@ You don't need to rename or move the folder.
 3. Drag the file **`start-mac`** (it may show as `start-mac.command`) from the app folder into
    the Terminal window. A long file location appears after `bash `.
 4. Press **Return**.
-5. If a box asks whether Terminal may access files in your **Downloads** folder, click
-   **Allow**.
+5. If a box asks whether Terminal may access files in your **Documents** or **Desktop**
+   folder, click **Allow**.
 6. When it asks for your key, **paste it** (press **⌘ Command + V**), then press **Return**.
 7. The first time, it installs what the app needs. This takes a few minutes and may look
    stuck. Just wait.
-8. Your web browser opens the app. 🎉
+8. It puts a **Decision Council** shortcut on your Desktop, then your web browser opens the
+   app. 🎉
 
 ### While you use the app
 
@@ -139,6 +143,9 @@ You don't need to rename or move the folder.
    was found, and a ✅ under each of the three models.
    If a model has a red box saying it's *“not in the OpenRouter catalogue”*, click one of
    the grey buttons under it to choose a replacement. AI models are retired from time to time.
+   **Model set** at the top of that panel lets you choose **Cheaper**, **Balanced
+   (recommended)** or **Best quality** (see [Which AI models it uses](#which-ai-models-it-uses)).
+   For your first try, **Cheaper** is fine.
 2. In the main area, click **Fill in a fictional example**. This fills in a made-up decision
    about taking a job abroad. Nothing is sent anywhere yet.
 3. Scroll down. Read the cost estimate, tick the box that starts **“I understand…”**, and
@@ -159,8 +166,25 @@ that starts with “Should I” and ends with “?”.
 
 ## Using the app again later
 
-Repeat **Step 4**. It's quick after the first time. When it asks for your key, just press
-**Enter** (Windows) or **Return** (Mac) to keep the saved one.
+**Double-click the Decision Council shortcut on your Desktop.** A black window (Windows) or
+Terminal window (Mac) opens. When it asks for your key, just press **Enter** (Windows) or
+**Return** (Mac) to keep the saved one. Your browser opens the app a few seconds later.
+
+(No shortcut? You can always repeat Step 4 instead.)
+
+## Making sure you don't lose the app
+
+- **The Desktop shortcut** is the easiest way back in. You can also:
+  - **Windows:** right-click the shortcut and choose **Pin to Start**, so it's in your Start
+    menu too.
+  - **Mac:** drag the shortcut onto the right-hand end of the **Dock** (next to the Bin/Trash),
+    so it's always one click away.
+- **Keep the app folder in Documents.** If you move it somewhere else later, start the app
+  once from the folder's new place (Step 4) and the shortcut fixes itself.
+- **If you ever lose or delete the folder,** just download it again (Step 3), start it
+  (Step 4), and paste your key. If you no longer have the key, create a new one on OpenRouter
+  (Step 2). Nothing else is lost, because the app never saves your decisions.
+- **Phone home screen:** this app runs on your computer, so your phone can't open it.
 
 ## Stopping the app
 
@@ -169,8 +193,8 @@ does **not** stop the app.
 
 ## Changing your key
 
-Start the app as in Step 4. When it asks for your key, paste the new one instead of pressing
-Enter/Return.
+Start the app (Desktop shortcut or Step 4). When it asks for your key, paste the new one
+instead of pressing Enter/Return.
 
 ---
 
@@ -192,6 +216,8 @@ Enter/Return.
 | A council member shows **Rate limited (429)** or **down or overloaded** | Wait a minute, then click the **Retry** button under the cards. |
 | A council member **“used all of its output tokens”** | In the left-hand panel, raise **Max output tokens per call** (for example to 12000), then click **Retry**. |
 | A council member's answer was **“not in the required JSON format”** or had **no valid vote** | Click **Retry**. If it keeps happening, click **Start over** and choose a different model for that member. |
+| The **Desktop shortcut** does nothing or says the folder was moved | Open the app folder and start it once as in Step 4. That repairs the shortcut. |
+| No shortcut appeared on the Desktop | Start the app as in Step 4 instead. On a Mac, if you clicked **Don't Allow** when asked about the Desktop folder, that's why. |
 | The browser page is blank or says it can't connect | Make sure the black/Terminal window is still open. Its text shows the address to open (usually <http://localhost:8501>). |
 
 ---
@@ -202,13 +228,31 @@ Enter/Return.
 
 | Member | Assigned perspective | Default model |
 |---|---|---|
-| **Melchior-1** · The Scientist | Evidence, logical consistency, feasibility, uncertainty | `openai/gpt-5` |
-| **Balthasar-2** · The Caregiver | Relationships, responsibilities, empathy, effects on vulnerable people | `anthropic/claude-sonnet-4.5` |
-| **Casper-3** · The Personal Self | Your autonomy, desires, identity, commitments, potential regret | `google/gemini-2.5-pro` |
+| **Melchior-1** · The Scientist | Evidence, logical consistency, feasibility, uncertainty | `openai/gpt-6-sol` |
+| **Balthasar-2** · The Caregiver | Relationships, responsibilities, empathy, effects on vulnerable people | `anthropic/claude-sonnet-5` |
+| **Casper-3** · The Personal Self | Your autonomy, desires, identity, commitments, potential regret | `google/gemini-3.1-pro-preview` |
 
 The perspectives come from the instructions each model receives. No model is inherently more
 logical, caring or intuitive, and which model plays which role is arbitrary. You can change
 it in the left-hand panel.
+
+## Which AI models it uses
+
+Each council member uses a model from a different company (OpenAI, Anthropic and Google), so
+the three opinions are as independent as possible. **Model set**, in the left-hand panel,
+switches all three at once:
+
+| Model set | Melchior-1 | Balthasar-2 | Casper-3 | Good for |
+|---|---|---|---|---|
+| **Cheaper** | GPT-6 Luna | Claude Haiku 4.5 | Gemini 3.8 Flash | Trying the app out. Costs a fraction of Balanced, but reasons less carefully. |
+| **Balanced (recommended)** | GPT-6 Sol | Claude Sonnet 5 | Gemini 3.1 Pro | Real decisions. Each company's newest mid-range model. |
+| **Best quality** | GPT-6 Astra | Claude Opus 5.5 | Gemini 3.1 Pro | When you want the strongest reasoning. Several times the price of Balanced. |
+
+These were each company's current models in September 2026. New models come out often, and
+old ones are retired: the app checks every model against OpenRouter's live list and suggests
+replacements if one disappears. The cost estimate before each round always uses today's
+prices. Browse all models and prices under **Browse the OpenRouter model catalogue** at the
+bottom of the app.
 
 ## How the voting works
 
@@ -258,11 +302,11 @@ provider is busy), you can retry just that member.
 
 ## Changing models and roles
 
-- **In the app:** edit the model IDs in the left-hand panel. They're checked against
+- **In the app:** choose a **Model set**, or edit the model IDs in the left-hand panel. They're checked against
   OpenRouter's live list of models. **Browse the OpenRouter model catalogue**, at the bottom of
   the page, lists every model with its price. Models are locked while a deliberation is open;
   click **Start over** to change them.
-- **Defaults:** edit `default_model` in `config.py`.
+- **Defaults and model sets:** edit `default_model` and `PRESETS` in `config.py`.
 - **Role instructions:** edit `perspective` in `config.py`. The rules shared by all members
   and the instructions for each round are in `council_logic.py`.
 
@@ -298,7 +342,7 @@ files.
 | File | What it is |
 |---|---|
 | `start-windows.bat`, `start-mac.command` | Start files: find Python, then run `launch.py` |
-| `launch.py` | Asks for your key, installs what's needed, starts the app |
+| `launch.py` | Asks for your key, installs what's needed, makes the Desktop shortcut, starts the app |
 | `app.py` | The web page |
 | `council_logic.py` | Prompts, answer parsing, vote counting, cost estimates, report |
 | `openrouter_client.py` | Talks to OpenRouter and turns errors into plain messages |

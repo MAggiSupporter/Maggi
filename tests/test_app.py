@@ -17,14 +17,15 @@ import openrouter_client as orc
 APP = str(Path(__file__).resolve().parent.parent / "app.py")
 MEMBERS = config.MEMBERS
 
+PRESET_IDS = sorted({model for preset in config.PRESETS.values() for model in preset.values()})
 CATALOGUE = [
     {
-        "id": m.default_model,
-        "name": m.default_model,
+        "id": model_id,
+        "name": model_id,
         "created": i,
         "pricing": {"prompt": "0.000002", "completion": "0.00001"},
     }
-    for i, m in enumerate(MEMBERS)
+    for i, model_id in enumerate(PRESET_IDS)
 ] + [{"id": "openai/gpt-5.5", "name": "GPT-5.5", "created": 99, "pricing": {"prompt": "0.000002", "completion": "0.00001"}}]
 
 
@@ -327,3 +328,30 @@ def test_nothing_is_written_to_disk(council, tmp_path, monkeypatch):
     run_round2(submit_round1(fill_example(start())))
     assert list(tmp_path.iterdir()) == []
     assert not os.path.exists(Path(APP).parent / "decision-council-report.md")
+
+
+# --- model sets -------------------------------------------------------------
+
+
+def test_defaults_are_the_balanced_set(council):
+    at = start()
+    assert at.selectbox(key="preset").value == "Balanced (recommended)"
+    for m in MEMBERS:
+        assert at.text_input(key=f"model_{m.key}").value == config.PRESETS["Balanced (recommended)"][m.key]
+
+
+@pytest.mark.parametrize("preset", list(config.PRESETS))
+def test_choosing_a_model_set_fills_in_all_three_models(council, preset):
+    at = start()
+    at.selectbox(key="preset").select(preset).run()
+    for m in MEMBERS:
+        assert at.text_input(key=f"model_{m.key}").value == config.PRESETS[preset][m.key]
+    submit_round1(fill_example(at))
+    assert {c["member"]: c["model"] for c in council.calls} == config.PRESETS[preset]
+
+
+def test_typing_a_model_id_switches_to_custom(council):
+    at = start()
+    at.text_input(key="model_casper").input("openai/gpt-5.5").run()
+    assert at.selectbox(key="preset").value == config.CUSTOM_PRESET
+    assert at.text_input(key="model_melchior").value == config.PRESETS["Balanced (recommended)"]["melchior"]

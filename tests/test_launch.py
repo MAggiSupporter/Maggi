@@ -116,3 +116,84 @@ def test_install_retries_once_from_scratch(monkeypatch, tmp_path):
     monkeypatch.setattr(launch.sysconfig, "get_platform", lambda: "macosx-14.0-arm64")
     launch.install()
     assert len(attempts) == 2
+
+
+# --- Desktop shortcut ---------------------------------------------------------
+
+
+@pytest.fixture
+def mac_home(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    (home / "Desktop").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(launch.sys, "platform", "darwin")
+    monkeypatch.setattr(launch, "SHORTCUT_MARKER", tmp_path / "marker")
+    return home
+
+
+def test_mac_shortcut_created_first_time_only(mac_home, capsys):
+    link = mac_home / "Desktop" / "Decision Council.command"
+    launch.make_desktop_shortcut()
+    assert link.exists() and link.stat().st_mode & 0o111
+    assert "shortcut on your Desktop" in capsys.readouterr().out
+
+    link.unlink()  # you deleted it: it must not come back
+    launch.make_desktop_shortcut()
+    assert not link.exists()
+
+
+def test_mac_shortcut_is_repointed_if_folder_moved(mac_home, monkeypatch, tmp_path):
+    launch.make_desktop_shortcut()
+    moved = tmp_path / "Documents" / "Decision Council"
+    monkeypatch.setattr(launch, "HERE", moved)
+    launch.make_desktop_shortcut()
+    assert str(moved / "start-mac.command") in (mac_home / "Desktop" / "Decision Council.command").read_text()
+
+
+def test_mac_shortcut_script_runs_the_start_file(tmp_path):
+    import subprocess
+
+    folder = tmp_path / "My Apps" / "Decision Council's folder"  # spaces and a quote
+    folder.mkdir(parents=True)
+    start = folder / "start-mac.command"
+    start.write_text('echo "started from $(basename "$(pwd)")"\n')
+    shortcut = tmp_path / "shortcut.command"
+    shortcut.write_text(launch.mac_shortcut_script(start))
+    result = subprocess.run(["bash", str(shortcut)], capture_output=True, text=True, cwd=folder)
+    assert "started from" in result.stdout
+
+    start.unlink()  # folder moved away: explain instead of failing silently
+    result = subprocess.run(["bash", str(shortcut)], input="\n", capture_output=True, text=True)
+    assert "moved or deleted" in result.stdout
+
+
+def test_windows_shortcut_sends_paths_safely(monkeypatch, tmp_path):
+    import base64
+
+    seen = {}
+
+    class Done:
+        returncode = 0
+        stdout = "C:\\Users\\me\\Desktop\\Decision Council.lnk\n"
+        stderr = ""
+
+    def fake_run(cmd, env, **kwargs):
+        seen["cmd"], seen["env"] = cmd, env
+        return Done()
+
+    monkeypatch.setattr(launch.subprocess, "run", fake_run)
+    link = launch._windows_shortcut(update_only=False)
+    assert str(link).endswith("Decision Council.lnk")
+    script = base64.b64decode(seen["cmd"][-1]).decode("utf-16-le")
+    assert "CreateShortcut" in script and "GetFolderPath('Desktop')" in script
+    assert seen["env"]["DC_START"].endswith("start-windows.bat")
+    assert seen["env"]["DC_UPDATE_ONLY"] == "0"
+
+
+def test_shortcut_failure_does_not_stop_the_app(mac_home, monkeypatch, capsys):
+    def broken(update_only):
+        raise PermissionError("Desktop access denied")
+
+    monkeypatch.setattr(launch, "_mac_shortcut", broken)
+    launch.make_desktop_shortcut()  # must not raise
+    assert "Couldn't put a shortcut" in capsys.readouterr().out

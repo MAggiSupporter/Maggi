@@ -6,13 +6,16 @@ start-mac.command (Mac) run it for you. It:
      a private file that git never uploads;
   2. installs what the app needs into a private ".venv" folder (slow only
      the first time);
-  3. starts the app, which opens in your web browser.
+  3. the first time, puts a "Decision Council" shortcut on your Desktop;
+  4. starts the app, which opens in your web browser.
 """
 
 from __future__ import annotations
 
+import base64
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -26,6 +29,9 @@ SECRETS_FILE = HERE / ".streamlit" / "secrets.toml"
 PLACEHOLDER = "your-key-here"
 KEY_LINE = re.compile(r'^\s*OPENROUTER_API_KEY\s*=\s*"([^"]*)"', re.MULTILINE)
 HELP = 'See "If something goes wrong" in README.md.'
+SHORTCUT_NAME = "Decision Council"
+# Remembers that the shortcut was offered, so a shortcut you delete stays deleted.
+SHORTCUT_MARKER = VENV_DIR / "desktop-shortcut-created"
 
 
 def say(text: str = "") -> None:
@@ -173,6 +179,97 @@ def install() -> None:
     )
 
 
+# --- Desktop shortcut ---------------------------------------------------------
+
+
+def mac_shortcut_script(start_file: Path) -> str:
+    app = shlex.quote(str(start_file))
+    return f"""#!/bin/bash
+# Shortcut to Decision Council, made by its start file. Double-click to start the app.
+# To remove the shortcut, just delete this file.
+APP={app}
+if [ ! -f "$APP" ]; then
+  echo "The Decision Council folder was moved or deleted, so this shortcut no longer works."
+  echo "Open the app folder and start it once with start-mac: that fixes this shortcut."
+  read -r -p "Press Return to close..." _
+  exit 1
+fi
+exec bash "$APP"
+"""
+
+
+def _mac_shortcut(update_only: bool) -> Path | None:
+    link = Path.home() / "Desktop" / f"{SHORTCUT_NAME}.command"
+    if update_only and not link.exists():
+        return None
+    link.write_text(mac_shortcut_script(HERE / "start-mac.command"), encoding="utf-8")
+    link.chmod(0o755)
+    return link
+
+
+# Runs in PowerShell. Paths arrive in environment variables, so no quoting problems.
+WINDOWS_SHORTCUT_PS = r"""
+$desktop = [Environment]::GetFolderPath('Desktop')
+$link = Join-Path $desktop ($env:DC_NAME + '.lnk')
+if ($env:DC_UPDATE_ONLY -eq '1' -and -not (Test-Path -LiteralPath $link)) { exit 0 }
+$shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($link)
+$shortcut.TargetPath = $env:ComSpec
+$shortcut.Arguments = '/c ""' + $env:DC_START + '""'
+$shortcut.WorkingDirectory = $env:DC_DIR
+$shortcut.Description = 'Start Decision Council'
+$shortcut.Save()
+Write-Output $link
+"""
+
+
+def _windows_shortcut(update_only: bool) -> Path | None:
+    env = dict(
+        os.environ,
+        DC_NAME=SHORTCUT_NAME,
+        DC_START=str(HERE / "start-windows.bat"),
+        DC_DIR=str(HERE),
+        DC_UPDATE_ONLY="1" if update_only else "0",
+    )
+    encoded = base64.b64encode(WINDOWS_SHORTCUT_PS.encode("utf-16-le")).decode("ascii")
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if result.returncode != 0:
+        raise OSError(result.stderr.strip() or "PowerShell failed")
+    path = result.stdout.strip()
+    return Path(path) if path else None
+
+
+def make_desktop_shortcut() -> None:
+    """Create the shortcut the first time. After that, only keep an existing
+    one pointing at this folder (in case you moved the folder)."""
+    if sys.platform == "darwin":
+        create = _mac_shortcut
+    elif os.name == "nt":
+        create = _windows_shortcut
+    else:
+        return
+    first_time = not SHORTCUT_MARKER.exists()
+    try:
+        link = create(update_only=not first_time)
+    except Exception:
+        if first_time:
+            say("(Couldn't put a shortcut on your Desktop. You can still start the app the usual way.)")
+        return
+    if first_time:
+        try:
+            SHORTCUT_MARKER.write_text("yes\n")
+        except OSError:
+            pass
+        if link:
+            say(f'Made a "{SHORTCUT_NAME}" shortcut on your Desktop.')
+            say("Next time, just double-click it to start the app.")
+
+
 # --- Step 3: run --------------------------------------------------------------
 
 
@@ -203,6 +300,7 @@ def main() -> None:
         raise SystemExit("This app needs Python 3.10 or newer. " + HELP)
     ask_for_key()
     install()
+    make_desktop_shortcut()
     run_app()
 
 

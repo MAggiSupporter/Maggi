@@ -142,6 +142,20 @@ def use_model(member_key: str, model_id: str) -> None:
     st.session_state[f"model_{member_key}"] = model_id
 
 
+def apply_preset() -> None:
+    models = config.PRESETS.get(st.session_state.preset)
+    if models:  # "Custom" leaves the typed IDs alone
+        for key, model_id in models.items():
+            st.session_state[f"model_{key}"] = model_id
+
+
+def matching_preset(models: dict) -> str:
+    for name, preset in config.PRESETS.items():
+        if preset == models:
+            return name
+    return config.CUSTOM_PRESET
+
+
 def start_over() -> None:
     st.session_state.deliberation = None
 
@@ -297,6 +311,18 @@ def render_sidebar(api_key: str | None, key_status: str, locked: bool) -> None:
             st.error(key_status)
 
         st.subheader("Council models")
+        # Show which ready-made set the current models match (or "Custom").
+        ss.preset = matching_preset(current_models())
+        st.selectbox(
+            "Model set",
+            [*config.PRESETS, config.CUSTOM_PRESET],
+            key="preset",
+            on_change=apply_preset,
+            disabled=locked,
+            help="Pick a ready-made set of three models, one from each company. "
+            "You can also type your own model IDs below.",
+        )
+        st.caption(config.PRESET_DESCRIPTIONS[ss.preset] + " The cost estimate is shown before each round.")
         catalogue = ss.catalogue
         if catalogue is not None:
             st.caption(f"Model IDs are checked against OpenRouter's live catalogue ({len(catalogue):,} models).")

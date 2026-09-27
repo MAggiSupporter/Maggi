@@ -1,8 +1,9 @@
 """Council members, their assigned perspectives, and default settings.
 
-You can change which model plays each role in the app's sidebar while it runs.
-To change the *default* models (what the app starts with), edit the
-`default_model` values below. Model IDs must exist in the OpenRouter catalogue:
+You can change which model plays each role in the app's sidebar while it runs,
+either with the "Model set" choice or by typing model IDs. To change the
+*default* models (what the app starts with), edit the `default_model` values
+below; to change the ready-made sets, edit PRESETS. Model IDs must exist in the OpenRouter catalogue:
 https://openrouter.ai/models
 
 Which model plays which role is arbitrary. The roles come from the prompts
@@ -38,7 +39,7 @@ MEMBERS = (
             "relationships, feelings and values as real factors in the decision, "
             "but test claims about them against the facts given."
         ),
-        default_model="openai/gpt-5",
+        default_model="openai/gpt-6-sol",
     ),
     Member(
         key="balthasar",
@@ -57,7 +58,7 @@ MEMBERS = (
             "your concern on the facts given, and say so honestly when a burden "
             "on others looks acceptable or manageable."
         ),
-        default_model="anthropic/claude-sonnet-4.5",
+        default_model="anthropic/claude-sonnet-5",
     ),
     Member(
         key="casper",
@@ -76,15 +77,46 @@ MEMBERS = (
             "priorities and constraints, and name any tension between what they "
             "want and what they have committed to."
         ),
-        default_model="google/gemini-2.5-pro",
+        default_model="google/gemini-3.1-pro-preview",
     ),
 )
+
+# Ready-made model sets, shown as "Model set" in the app's sidebar. Each uses
+# one model from each of three different companies. Prices change: the app
+# always shows current prices from OpenRouter. Last checked September 2026.
+PRESETS = {
+    "Balanced (recommended)": {
+        # Each company's newest mid-range model: strong reasoning at a moderate price.
+        "melchior": "openai/gpt-6-sol",
+        "balthasar": "anthropic/claude-sonnet-5",
+        "casper": "google/gemini-3.1-pro-preview",
+    },
+    "Cheaper": {
+        # Small, fast models: good for trying the app out.
+        "melchior": "openai/gpt-6-luna",
+        "balthasar": "anthropic/claude-haiku-4.5",
+        "casper": "google/gemini-3.8-flash",
+    },
+    "Best quality": {
+        # Each company's top model: slower and several times the price.
+        "melchior": "openai/gpt-6-astra",
+        "balthasar": "anthropic/claude-opus-5.5",
+        "casper": "google/gemini-3.1-pro-preview",
+    },
+}
+PRESET_DESCRIPTIONS = {
+    "Balanced (recommended)": "Each company's newest mid-range model. Strong reasoning at a moderate price.",
+    "Cheaper": "Small, fast models. Good for trying the app out; less careful reasoning.",
+    "Best quality": "Each company's top model. Slower, and several times the price of Balanced.",
+    "Custom": "You've typed your own model IDs below.",
+}
+CUSTOM_PRESET = "Custom"
 
 # Upper limit on the tokens each model may write per call. For models that
 # "think" before answering, this includes their hidden reasoning tokens. A higher
 # limit raises the maximum possible cost; too low a limit can produce empty or
 # cut-off answers.
-DEFAULT_MAX_OUTPUT_TOKENS = 6000
+DEFAULT_MAX_OUTPUT_TOKENS = 8000
 
 # How long to wait for one model to answer before giving up.
 REQUEST_TIMEOUT_SECONDS = 180
