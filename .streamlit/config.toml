@@ -1,0 +1,16 @@
+# Streamlit settings for Decision Council (safe to commit: no secrets here).
+
+[server]
+# Only accept connections from this computer, not from other devices on your network.
+address = "localhost"
+port = 8501
+# Skip Streamlit's first-run "enter your email" prompt in the terminal.
+showEmailPrompt = false
+
+[browser]
+# Don't send anonymous usage statistics to Streamlit.
+gatherUsageStats = false
+
+[client]
+# Hide developer options such as the "Deploy" button, which would publish the app online.
+toolbarMode = "viewer"

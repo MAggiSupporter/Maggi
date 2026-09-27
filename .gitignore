@@ -1,0 +1,22 @@
+# --- Secrets: never commit these ---
+.streamlit/secrets.toml
+.env
+.env.*
+*.key
+
+# --- Decision reports you download (they contain your personal case) ---
+decision-council-report*.md
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
