@@ -1,0 +1,13 @@
+{
+  "name": "phantom-calendar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A Persona-style calendar app that lives in your Google account and syncs both ways with Google Calendar.",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "test": "node tools/build.mjs && node tests/google-path.test.js && node tests/demo.test.js && node tests/demo.test.js America/Los_Angeles"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}

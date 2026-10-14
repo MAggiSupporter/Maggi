@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Phantom Calendar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Bebas+Neue&family=Barlow+Semi+Condensed:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Archivo+Black&family=Bangers&family=Black+Ops+One&family=Bungee&family=Permanent+Marker&family=Playfair+Display:ital,wght@1,900&family=Rubik+Mono+One&family=Shrikhand&family=Special+Elite&display=swap&text=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789%21%3F%26%27.%2C-%2F%3A%23%2B%E2%80%93">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="bgfx" aria-hidden="true">
+  <div class="bgfx-slab bgfx-a"></div>
+  <div class="bgfx-slab bgfx-b"></div>
+  <div class="bgfx-slab bgfx-c"></div>
+  <div class="bgfx-dots"></div>
+  <div class="bgfx-lines"></div>
+</div>
+
+<div id="boot" class="boot" role="status" aria-live="polite">
+  <div class="boot-star"></div>
+  <div class="boot-title" id="bootTitle">TAKE YOUR TIME</div>
+  <div class="boot-sub" id="bootSub">Breaking into your calendar…</div>
+</div>
+
+<div id="app" class="app" hidden>
+  <header class="topbar">
+    <button class="icon-btn menu-btn" id="menuBtn" aria-label="Show or hide the side panel" title="Side panel"></button>
+
+    <button class="datewidget" id="dateWidget" title="Jump to today (T)">
+      <span class="dw-main"><span class="dw-date" id="dwDate">--/--</span><span class="dw-wd" id="dwWd">---</span></span>
+      <span class="dw-phase" id="dwPhase">----</span>
+      <span class="dw-weather" id="dwWeather" hidden></span>
+    </button>
+
+    <nav class="navcluster" aria-label="Move through the calendar">
+      <button class="jag-btn arrow" id="prevBtn" aria-label="Previous" title="Previous (K)"></button>
+      <button class="jag-btn today-btn" id="todayBtn" title="Today (T)">TODAY</button>
+      <button class="jag-btn arrow" id="nextBtn" aria-label="Next" title="Next (J)"></button>
+    </nav>
+
+    <h1 class="view-title" id="viewTitle" aria-live="polite"></h1>
+
+    <div class="topbar-right">
+      <form class="search" id="searchForm" role="search">
+        <input id="searchInput" type="search" placeholder="Hunt for an event…" aria-label="Search events" autocomplete="off">
+        <button class="icon-btn" id="searchBtn" type="submit" aria-label="Search" title="Search (/)"></button>
+      </form>
+      <div class="tabs" id="viewTabs" role="tablist" aria-label="View">
+        <button class="tab" role="tab" data-view="day" title="Day (D)">DAY</button>
+        <button class="tab" role="tab" data-view="week" title="Week (W)">WEEK</button>
+        <button class="tab" role="tab" data-view="month" title="Month (M)">MONTH</button>
+        <button class="tab" role="tab" data-view="schedule" title="Schedule (A)">SCHEDULE</button>
+      </div>
+      <button class="sync-chip" id="syncChip" title="Check Google Calendar now (R)"><span class="sync-star"></span><span id="syncText">—</span></button>
+      <button class="icon-btn" id="soundBtn" aria-label="Sound on or off" title="Sound"></button>
+      <button class="icon-btn" id="settingsBtn" aria-label="Settings" title="Hideout (settings)"></button>
+    </div>
+  </header>
+
+  <aside class="sidebar" id="sidebar">
+    <button class="create-btn" id="createBtn" title="Create an event (C)">
+      <span class="create-tag">SEND A CALLING CARD</span>
+      <span class="create-main">+ CREATE</span>
+    </button>
+    <section class="minical" id="miniCal" aria-label="Month picker"></section>
+    <section class="side-sec">
+      <h2 class="side-h"><span>PALACE DEADLINES</span></h2>
+      <div id="deadlines" class="deadlines"></div>
+    </section>
+    <section class="side-sec">
+      <h2 class="side-h"><span>CONFIDANTS</span><small>your calendars</small></h2>
+      <div id="calList" class="cal-list"></div>
+    </section>
+    <div class="side-foot" id="sideFoot"></div>
+  </aside>
+  <div class="scrim" id="scrim" hidden></div>
+
+  <main class="stage" id="stage">
+    <div class="stage-frame" aria-hidden="true"></div>
+    <div class="demo-banner" id="demoBanner" hidden>
+      <b>DEMO MODE</b> <span>Fake events, saved in this browser only. Follow README.md to link your Google Calendar.</span>
+    </div>
+    <div class="view" id="view"></div>
+  </main>
+
+  <button class="fab" id="fab" aria-label="Create an event">+</button>
+</div>
+
+<div id="layer" class="layer"></div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+
+<script src="js/util.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/backend.js"></script>
+<script src="js/store.js"></script>
+<script src="js/views.js"></script>
+<script src="js/dialogs.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
