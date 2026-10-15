@@ -274,6 +274,12 @@ function descriptionText(desc) {
   if (!/<[a-z][\s\S]*>/i.test(desc)) return desc;
   const withBreaks = desc.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|h\d)>/gi, '\n').replace(/<li[^>]*>/gi, '• ');
   const doc = new DOMParser().parseFromString(withBreaks, 'text/html');
+  // a link written as a label keeps its address: "Join meeting (https://…)"
+  doc.querySelectorAll('a[href]').forEach((a) => {
+    const href = a.getAttribute('href') || '';
+    const label = (a.textContent || '').trim();
+    if (/^https?:/i.test(href) && label && !label.includes(href)) a.textContent = label + ' (' + href + ')';
+  });
   return (doc.body.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
 }
 

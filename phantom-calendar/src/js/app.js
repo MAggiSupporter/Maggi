@@ -171,7 +171,9 @@ function bindUI() {
   document.addEventListener('keydown', onKey);
   window.addEventListener('resize', debounce(() => { if (App.ready) renderAll(); }, 150));
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && App.ready && Date.now() - App.lastSync > 4000) syncNow();
+    if (document.hidden || !App.ready) return;
+    if (Date.now() - App.lastSync > 4000) syncNow();
+    if (Date.now() - App.calsAt > 300000) refreshCalendars();
   });
   window.addEventListener('focus', () => {
     if (App.ready && Date.now() - App.lastSync > 8000) syncNow();
@@ -251,6 +253,7 @@ function slowTick() {
   if (!App.ready) return;
   // keep the "next up" countdown fresh without redrawing the whole page
   if (Date.now() - lastSideRender > 55000 && !App.drag) { lastSideRender = Date.now(); renderDeadlines(); }
+  if (!document.hidden && Date.now() - App.calsAt > 300000) refreshCalendars();
   const due = App.settings.syncSec * 1000;
   if (!document.hidden && !App.drag && Date.now() - Math.max(App.lastSync, App.lastAttempt) >= due - 500) syncNow();
 }
@@ -276,6 +279,7 @@ async function boot() {
       applySettings();
     }
     setCalendars(b.calendars || []);
+    App.calsAt = Date.now();
     App.view = ['day', 'week', 'month', 'schedule'].includes(App.settings.view) ? App.settings.view : 'week';
     App.miniMonth = startOfMonth(App.date);
     bootText('BREAKING IN', 'Reading your calendar…');
@@ -323,9 +327,15 @@ function showFatal(err) {
         li('Come back here and press ', h('b', null, 'TRY AGAIN'), '.')));
   } else {
     box.append(
-      h('p', null, permission ? 'Google said this app isn’t allowed to see your calendar. Open the Web app link again and approve access when Google asks.' : 'Couldn’t break into your calendar. Google said:'),
+      h('p', null, permission ? 'Google hasn’t given the app permission to use your calendar. This usually means a box was left unticked on Google’s permission screen.' : 'Couldn’t break into your calendar. Google said:'),
       h('div', { class: 'fatal-msg' }, errMsg(err)),
-      h('p', null, 'If it keeps happening, see “If something goes wrong” in README.md.'));
+      permission
+        ? h('ol', null,
+          li('Go back to your project at script.google.com.'),
+          li('In the bar at the top, pick ', h('b', null, 'pcBootstrap'), ' from the list next to ', h('b', null, '▷ Run'), ', then click ', h('b', null, 'Run'), '.'),
+          li('Click ', h('b', null, 'Review permissions'), ', choose your account, ', h('b', null, 'tick every box'), ', then ', h('b', null, 'Continue'), ' or ', h('b', null, 'Allow'), '.'),
+          li('Come back here and press ', h('b', null, 'TRY AGAIN'), '.'))
+        : h('p', null, 'If it keeps happening, see “If something goes wrong” in README.md.'));
   }
   box.append(h('div', { class: 'fatal-actions' },
     h('button', { class: 'jag-btn primary', onclick: () => { node.remove(); $('#boot').hidden = false; $('#boot').classList.remove('is-out'); boot(); } }, 'TRY AGAIN'),

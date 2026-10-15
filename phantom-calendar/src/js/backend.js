@@ -22,6 +22,7 @@ const GoogleBackend = {
     });
   },
   bootstrap() { return this.call('pcBootstrap'); },
+  calendars() { return this.call('pcCalendars').then((r) => r.calendars); },
   sync(req) { return this.call('pcSync', JSON.stringify(req)); },
   createEvent(calId, resource) { return this.call('pcCreateEvent', calId, JSON.stringify(resource)); },
   updateEvent(calId, eventId, patch, opts) { return this.call('pcUpdateEvent', calId, eventId, JSON.stringify(patch || {}), JSON.stringify(opts || {})); },
@@ -52,6 +53,11 @@ const DemoBackend = {
     this.load();
     await wait(450);
     return { user: 'joker@phantom.demo', timeZone: LOCAL_TZ, calendars: this.db.calendars, settings: null };
+  },
+
+  async calendars() {
+    this.load();
+    return JSON.parse(JSON.stringify(this.db.calendars));
   },
 
   async sync(req) {
@@ -288,12 +294,18 @@ function demoExpand(master, from, to, overrides) {
 function demoShift(master, shiftMs, durationMs, dayShift) {
   let recurrence = null;
   if (dayShift && master.recurrence) {
-    recurrence = master.recurrence.map((line) => line.startsWith('RRULE:')
-      ? line.replace(/BYDAY=([^;]+)/, (all, list) => 'BYDAY=' + list.split(',').map((tok) => {
-        const m = tok.match(/^([+-]?\d*)(SU|MO|TU|WE|TH|FR|SA)$/);
-        return m ? m[1] + RRULE_DAYS[(RRULE_DAYS.indexOf(m[2]) + (dayShift % 7) + 7) % 7] : tok;
-      }).join(','))
-      : line);
+    // same rules as Code.gs pcShiftRule_
+    recurrence = master.recurrence.map((line) => {
+      if (!line.startsWith('RRULE:')) return line;
+      line = line.replace(/BYDAY=([^;]+)/, (all, list) => {
+        const m = !list.includes(',') && list.match(/^([+-]?\d*)(SU|MO|TU|WE|TH|FR|SA)$/);
+        return m ? 'BYDAY=' + m[1] + RRULE_DAYS[(RRULE_DAYS.indexOf(m[2]) + (dayShift % 7) + 7) % 7] : all;
+      });
+      return line.replace(/BYMONTHDAY=(\d+)(?=;|$)/, (all, d) => {
+        const n = +d + dayShift;
+        return n >= 1 && n <= 28 ? 'BYMONTHDAY=' + n : all;
+      });
+    });
   }
   if (master.start.date) {
     const s = addDays(parseYmd(master.start.date), dayShift || Math.round(shiftMs / DAY_MS));

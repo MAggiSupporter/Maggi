@@ -2,14 +2,16 @@
  * PHANTOM CALENDAR — the Google side.
  *
  * This file runs on Google's servers as YOUR Google account. It is the bridge
- * between the app (Index.html) and your Google Calendar: it reads your events,
- * and writes the changes you make in the app straight back to Google.
+ * between the app and your Google Calendar: it reads your events, and writes
+ * the changes you make in the app straight back to Google.
  *
- * Setup is in README.md. Short version:
- *   1. script.google.com → New project → paste this file into Code.gs
- *   2. Add an HTML file called "Index" and paste Index.html into it
- *   3. Services (+) → "Google Calendar API" → Add
- *   4. Deploy → New deployment → Web app → Execute as: Me, Access: Only myself
+ * EASY SETUP (this one file is all you need):
+ *   1. script.google.com → New project → delete what's there → paste this file
+ *   2. Services (+) → "Google Calendar API" → Add
+ *   3. Deploy → New deployment → Web app → Execute as: Me, Access: Only myself
+ * The app's screens download from the project's GitHub page each time you open
+ * it, so fixes arrive on their own. To keep everything inside your account
+ * instead, also add an HTML file named "Index" containing apps-script/Index.html.
  *
  * Nothing here sends your data anywhere except between you and Google.
  */
@@ -17,9 +19,15 @@
 var PC_SETTINGS_KEY = 'phantomCalendarSettings';
 var PC_MAX_PAGES = 10;
 
-/** Serves the app. */
+/** Serves the app: the "Index" file if you added one, otherwise the built-in loader. */
 function doGet() {
-  return HtmlService.createHtmlOutputFromFile('Index')
+  var page;
+  try {
+    page = HtmlService.createHtmlOutputFromFile('Index');
+  } catch (e) {
+    page = HtmlService.createHtmlOutput(PC_LOADER_HTML);
+  }
+  return page
     .setTitle('Phantom Calendar')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
@@ -35,14 +43,22 @@ function pcBootstrap() {
   var calendars = pcListCalendars_();
   var primary = calendars.filter(function (c) { return c.primary; })[0];
   var saved = PropertiesService.getUserProperties().getProperty(PC_SETTINGS_KEY);
+  var settings = null;
+  try { settings = saved ? JSON.parse(saved) : null; } catch (e) { settings = null; }
   var email = '';
   try { email = Session.getActiveUser().getEmail(); } catch (e) { /* not available */ }
   return JSON.stringify({
     user: email || (primary ? primary.id : ''),
     timeZone: primary ? primary.timeZone : Session.getScriptTimeZone(),
     calendars: calendars,
-    settings: saved ? JSON.parse(saved) : null
+    settings: settings
   });
+}
+
+/** Your calendar list again, so calendars added in Google show up without a reload. */
+function pcCalendars() {
+  pcCheck_();
+  return JSON.stringify({ calendars: pcListCalendars_() });
 }
 
 /**
@@ -102,7 +118,7 @@ function pcUpdateEvent(calId, eventId, patchJson, optsJson) {
     }
   }
 
-  var ev;
+  var ev = null;
   if (pcHasNull_(patch)) {
     // null means "remove this" (an all-day <-> timed switch, or back to the
     // calendar's colour). A patch can't be trusted with that, so read the
@@ -113,7 +129,11 @@ function pcUpdateEvent(calId, eventId, patchJson, optsJson) {
     ev = Calendar.Events.patch(patch, calId, targetId);
   }
   if (opts.moveTo && opts.moveTo !== calId) {
-    ev = Calendar.Events.move(calId, targetId, opts.moveTo);
+    try {
+      ev = Calendar.Events.move(calId, targetId, opts.moveTo);
+    } catch (e) {
+      throw new Error('Your other changes were saved, but Google wouldn\'t move this event to that calendar (' + pcMsg_(e) + ').');
+    }
     calId = opts.moveTo;
   }
   return JSON.stringify(pcSlim_(ev, calId));
@@ -132,24 +152,47 @@ function pcGetEvent(calId, eventId) {
   return JSON.stringify(pcSlim_(Calendar.Events.get(calId, eventId), calId));
 }
 
-/** Searches events by text. req = { q, calendarIds, timeMin, timeMax } */
+/**
+ * Searches events by text. req = { q, calendarIds, timeMin, timeMax }
+ * Upcoming matches come first, then the most recent past ones, so a search for
+ * something that repeats every day still shows what's coming up.
+ */
 function pcSearch(reqJson) {
   pcCheck_();
   var req = JSON.parse(reqJson);
-  var all = [];
+  var now = new Date();
+  var nowIso = now.toISOString();
+  var seen = {};
+  var future = [], past = [];
+  var add = function (list, ev) {
+    var k = ev.calendarId + '|' + ev.id;
+    if (!seen[k]) { seen[k] = true; list.push(ev); }
+  };
   (req.calendarIds || []).forEach(function (calId) {
     try {
-      pcListEvents_(calId, { q: req.q, timeMin: req.timeMin, timeMax: req.timeMax, maxResults: 250 }, 1)
-        .forEach(function (ev) { all.push(ev); });
+      pcListEvents_(calId, { q: req.q, timeMin: nowIso, timeMax: req.timeMax, maxResults: 250 }, 1)
+        .forEach(function (ev) { add(future, ev); });
+      var before = pcListEvents_(calId, { q: req.q, timeMin: req.timeMin, timeMax: nowIso, maxResults: 250 }, 1);
+      if (before.length >= 250) {
+        // too many to get them all: look at just the last 60 days instead
+        before = pcListEvents_(calId, { q: req.q, timeMin: new Date(now.getTime() - 60 * 864e5).toISOString(), timeMax: nowIso, maxResults: 250 }, 1);
+      }
+      before.forEach(function (ev) { add(past, ev); });
     } catch (e) { /* skip calendars that can't be searched */ }
   });
-  all.sort(function (a, b) { return pcStartMs_(a) - pcStartMs_(b); });
-  return JSON.stringify({ events: all.slice(0, 300) });
+  var byStart = function (a, b) { return pcStartMs_(a) - pcStartMs_(b); };
+  future.sort(byStart);
+  past.sort(byStart);
+  var events = past.slice(-100).concat(future.slice(0, 200));
+  return JSON.stringify({ events: events });
 }
 
 /** Remembers your app settings (theme, sounds...) on your Google account. */
 function pcSaveSettings(settingsJson) {
-  PropertiesService.getUserProperties().setProperty(PC_SETTINGS_KEY, String(settingsJson).slice(0, 8000));
+  var text = String(settingsJson);
+  JSON.parse(text);
+  if (text.length > 8500) throw new Error('Settings are too large to save.');
+  PropertiesService.getUserProperties().setProperty(PC_SETTINGS_KEY, text);
   return JSON.stringify({ ok: true });
 }
 
@@ -177,7 +220,7 @@ function pcListCalendars_() {
         textColor: c.foregroundColor || '#000000',
         accessRole: c.accessRole,
         primary: !!c.primary,
-        selected: c.selected !== false,
+        selected: c.selected === true || !!c.primary,
         timeZone: c.timeZone || ''
       });
     });
@@ -279,7 +322,7 @@ function pcStrings_(obj) {
 function pcShiftTimes_(master, shiftMs, durationMs, dayShift) {
   var recurrence = null;
   if (dayShift && master.recurrence) {
-    recurrence = master.recurrence.map(function (line) { return pcShiftByDay_(line, dayShift); });
+    recurrence = master.recurrence.map(function (line) { return pcShiftRule_(line, dayShift); });
   }
   if (master.start.date) {
     var days = dayShift || Math.round(shiftMs / 864e5);
@@ -298,17 +341,23 @@ function pcShiftTimes_(master, shiftMs, durationMs, dayShift) {
   };
 }
 
-/** "Weekly on Wednesday" becomes "weekly on Thursday" when moved one day later. */
-function pcShiftByDay_(line, dayShift) {
+/**
+ * Moves a repeat rule along with its dates: "weekly on Wednesday" becomes
+ * "weekly on Thursday", "monthly on day 15" becomes "monthly on day 16".
+ * Rules with several days ("every weekday") keep their days.
+ */
+function pcShiftRule_(line, dayShift) {
   if (line.indexOf('RRULE:') !== 0) return line;
   var days = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
-  return line.replace(/BYDAY=([^;]+)/, function (all, list) {
-    return 'BYDAY=' + list.split(',').map(function (tok) {
-      var m = tok.match(/^([+-]?\d*)(SU|MO|TU|WE|TH|FR|SA)$/);
-      if (!m) return tok;
-      var i = (days.indexOf(m[2]) + (dayShift % 7) + 7) % 7;
-      return m[1] + days[i];
-    }).join(',');
+  line = line.replace(/BYDAY=([^;]+)/, function (all, list) {
+    if (list.indexOf(',') !== -1) return all;
+    var m = list.match(/^([+-]?\d*)(SU|MO|TU|WE|TH|FR|SA)$/);
+    if (!m) return all;
+    return 'BYDAY=' + m[1] + days[(days.indexOf(m[2]) + (dayShift % 7) + 7) % 7];
+  });
+  return line.replace(/BYMONTHDAY=(\d+)(?=;|$)/, function (all, d) {
+    var n = Number(d) + dayShift;
+    return n >= 1 && n <= 28 ? 'BYMONTHDAY=' + n : all;
   });
 }
 
@@ -355,3 +404,90 @@ function pcHash_(text) {
 function pcMsg_(e) {
   return String((e && e.message) || e);
 }
+
+/* ------------------------------------------------------------------------ */
+/* Built-in loader page (a copy of apps-script/loader/Index.html, written    */
+/* here by tools/build.mjs; edit that file, not this block)                  */
+/* ------------------------------------------------------------------------ */
+// BEGIN LOADER
+var PC_LOADER_HTML = [
+  "<!doctype html>",
+  "<!-- PHANTOM CALENDAR loader. A small stand-in for Index.html: it downloads the full app",
+  "     (apps-script/Index.html) from this GitHub repo each time it opens, so it picks up",
+  "     fixes on its own. If the branch is gone it tries main, then a fixed commit, then the",
+  "     copy saved in this browser from last time. Use either this file or the full",
+  "     Index.html as the \"Index\" file in Apps Script, not both. -->",
+  "<html lang=\"en\">",
+  "<head>",
+  "<meta charset=\"utf-8\">",
+  "<title>Phantom Calendar</title>",
+  "<style>",
+  "  html, body { margin: 0; height: 100%; background: #0b0b0d; color: #f4f1ea; font: 600 16px/1.4 system-ui, sans-serif; }",
+  "  #pcl { position: fixed; inset: 0; display: grid; place-content: center; justify-items: center; gap: 18px; padding: 24px; text-align: center; }",
+  "  #pcl .star { width: 72px; height: 72px; background: #e5191c; clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); animation: pcl-spin 1.1s linear infinite; }",
+  "  #pcl b { font: 900 42px/1 Impact, 'Arial Narrow Bold', sans-serif; letter-spacing: 1px; transform: rotate(-4deg); }",
+  "  #pcl span { max-width: 420px; color: #8f8c95; letter-spacing: 1px; }",
+  "  @keyframes pcl-spin { to { transform: rotate(360deg); } }",
+  "</style>",
+  "</head>",
+  "<body>",
+  "<div id=\"pcl\" role=\"status\"><div class=\"star\"></div><b>TAKE YOUR TIME</b><span id=\"pclMsg\">Loading Phantom Calendar…</span></div>",
+  "<script>",
+  "(function () {",
+  "  var BASE = 'https://raw.githubusercontent.com/MAggiSupporter/Maggi/';",
+  "  var PATH = '/phantom-calendar/apps-script/Index.html';",
+  "  var SOURCES = [",
+  "    BASE + 'claude/epic-thompson-258mz9' + PATH,",
+  "    BASE + 'main' + PATH,",
+  "    BASE + 'dbf0676c7b4a21144b07a0b17e64ae8f13959a63' + PATH",
+  "  ];",
+  "  var CACHE_KEY = 'phantom-calendar-app-copy';",
+  "",
+  "  function say(text) { var el = document.getElementById('pclMsg'); if (el) el.textContent = text; }",
+  "  function looksRight(html) {",
+  "    return typeof html === 'string' && html.indexOf('PHANTOM CALENDAR') !== -1 && html.indexOf('pcBootstrap') !== -1;",
+  "  }",
+  "  function savedCopy() {",
+  "    try { return localStorage.getItem(CACHE_KEY); } catch (e) { return null; }",
+  "  }",
+  "",
+  "  function tryNext(i) {",
+  "    if (i >= SOURCES.length) {",
+  "      var copy = savedCopy();",
+  "      if (looksRight(copy)) { mount(copy); return; }",
+  "      say('Couldn’t download the app. Check that you’re online, then reload this page.');",
+  "      return;",
+  "    }",
+  "    fetch(SOURCES[i], { cache: 'no-cache' })",
+  "      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })",
+  "      .then(function (html) {",
+  "        if (!looksRight(html)) throw new Error('unexpected file');",
+  "        try { localStorage.setItem(CACHE_KEY, html); } catch (e) { /* no storage: fine */ }",
+  "        mount(html);",
+  "      })",
+  "      .catch(function () { tryNext(i + 1); });",
+  "  }",
+  "",
+  "  function mount(html) {",
+  "    var doc = new DOMParser().parseFromString(html, 'text/html');",
+  "    var heads = doc.head.querySelectorAll('link[rel=\"stylesheet\"], link[rel=\"preconnect\"], style');",
+  "    for (var i = 0; i < heads.length; i++) document.head.appendChild(document.importNode(heads[i], true));",
+  "    var scripts = Array.prototype.slice.call(doc.body.querySelectorAll('script'));",
+  "    scripts.forEach(function (s) { s.parentNode.removeChild(s); });",
+  "    var loading = document.getElementById('pcl');",
+  "    if (loading) loading.parentNode.removeChild(loading);",
+  "    Array.prototype.slice.call(doc.body.childNodes).forEach(function (n) { document.body.appendChild(document.importNode(n, true)); });",
+  "    scripts.forEach(function (s) {",
+  "      var el = document.createElement('script');",
+  "      el.textContent = s.textContent;",
+  "      document.body.appendChild(el);",
+  "    });",
+  "  }",
+  "",
+  "  tryNext(0);",
+  "})();",
+  "</script>",
+  "</body>",
+  "</html>"
+].join('\n');
+// END LOADER

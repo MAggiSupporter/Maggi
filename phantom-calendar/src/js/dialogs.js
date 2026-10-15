@@ -350,7 +350,7 @@ function openEditor(ev, draft) {
     }
     if (f.recurrence && !opts.some((o) => o.v === f.recurrence)) {
       // the start date moved: a new event follows it ("weekly on Tuesday" → "weekly on Thursday");
-      // a series keeps its rule and Google shifts it along with the dates
+      // for a series the rule is left alone here and Code.gs moves it along with the dates
       const same = !(ev && ev.seriesId) && repeatKind && opts.find((o) => o.kind === repeatKind);
       if (same) f.recurrence = same.v;
       else opts.push({ v: f.recurrence, label: describeRule([f.recurrence]) });
@@ -369,6 +369,9 @@ function openEditor(ev, draft) {
   const description = h('textarea', { class: 'f-area', placeholder: 'The plan, in detail…', 'aria-label': 'Description' });
   description.value = f.description;
   const calSel = calendarSelect(f.calId, (v) => { f.calId = v; paintSwatches(); });
+  const specialType = ev && ev.raw.eventType && ev.raw.eventType !== 'default';
+  if (specialType) calSel.disabled = true;
+  const richDesc = !!(ev && raw.description && /<[a-z][\s\S]*>/i.test(raw.description));
 
   const swatches = h('div', { class: 'swatches', role: 'radiogroup', 'aria-label': 'Event colour' });
   const paintSwatches = () => {
@@ -414,8 +417,9 @@ function openEditor(ev, draft) {
       ev && ev.seriesId ? h('div', { class: 'f-hint' }, 'This is one event in a repeating series. When you save, you choose: just this one, or all of them.') : null,
       L('WHERE'), location,
       L('DETAILS'), description,
+      richDesc ? h('div', { class: 'f-hint' }, 'This was written with formatting in Google. If you change it here, it\u2019s saved as plain text (links are kept).') : null,
       h('div', { class: 'ed-grid' },
-        h('div', null, L('CALENDAR'), calSel),
+        h('div', null, L('CALENDAR'), calSel, specialType ? h('div', { class: 'f-hint' }, 'Google doesn\u2019t let this kind of event change calendars.') : null),
         h('div', null, L('NOTIFICATION'), reminder),
         h('div', null, L('SHOW ME AS'), showAs),
         h('div', { class: 'full' }, L('COLOUR'), swatches)),
@@ -489,14 +493,15 @@ async function saveExisting(ev, f, orig, master, close) {
     if (timesChanged) {
       if (f.allDay !== ev.allDay && master) {
         const ms = master.start.date ? parseYmd(master.start.date) : new Date(master.start.dateTime);
-        const first = addDays(sod(ms), dayDiff(ev.start, f.start));
+        const first = addDays(sod(ms), dayDiff(seriesBase(ev), f.start));
         const s = f.allDay ? first : atMinutes(first, minutesOfDay(f.start));
         const e = f.allDay ? addDays(s, Math.max(1, dayDiff(f.start, f.end))) : new Date(s.getTime() + (f.end - f.start));
         Object.assign(patch, timePatch(ev, s, e, f.allDay));
       } else {
-        opts.shiftMs = f.start - ev.start;
+        const base = seriesBase(ev);
+        opts.shiftMs = f.start - base;
         opts.durationMs = f.end - f.start;
-        opts.dayShift = dayDiff(ev.start, f.start);
+        opts.dayShift = dayDiff(base, f.start);
       }
     }
     if (recurChanged) patch.recurrence = f.recurrence ? [f.recurrence] : [];

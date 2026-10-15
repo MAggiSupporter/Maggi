@@ -83,6 +83,11 @@ function isoAt(day, h, m) { const d = new Date(day); d.setUTCHours(h, m || 0, 0,
   const client = fake.add('work@group', { summary: 'Client call', start: { dateTime: isoAt(today, 13), timeZone: 'UTC' }, end: { dateTime: isoAt(today, 14), timeZone: 'UTC' } });
   fake.add('holidays@group', { summary: 'Founders Day', start: { date: new Date(sunday.getTime() + 864e5 * 5).toISOString().slice(0, 10) }, end: { date: new Date(sunday.getTime() + 864e5 * 6).toISOString().slice(0, 10) }, organizer: { email: 'holidays', self: false }, creator: { email: 'holidays', self: false } });
 
+  fake.add('old@group', { summary: 'Hidden calendar event', start: { dateTime: isoAt(today, 8), timeZone: 'UTC' }, end: { dateTime: isoAt(today, 8, 30), timeZone: 'UTC' } });
+  for (let i = -365; i <= 30; i++) {
+    const d = today.getTime() + i * 864e5;
+    fake.add('work@group', { summary: 'Standup', start: { dateTime: isoAt(d, 6), timeZone: 'UTC' }, end: { dateTime: isoAt(d, 6, 15), timeZone: 'UTC' } });
+  }
   const log = [];
   const { ctx, page } = await openApp(browser, gas, log);
   await page.waitForSelector('#app:not([hidden])', { timeout: 15000 });
@@ -272,6 +277,69 @@ function isoAt(day, h, m) { const d = new Date(day); d.setUTCHours(h, m || 0, 0,
   await page.keyboard.press('Enter');
   await page.waitForTimeout(600);
   check(/Added on my phone/.test(await page.textContent('#view')), 'search asks Google and shows matches');
+
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+
+  /* ---------- fixes found in review ---------- */
+  console.log('Edge cases:');
+  check(!/Hidden calendar event/.test(await page.textContent('#view')) && await page.$('.cal.is-off:has-text("Old stuff")'), 'a calendar unticked in Google starts hidden here too');
+
+  // search for something that happens every day still shows what's coming up
+  check(/Standup/.test(await page.textContent('#view')), 'daily events are on screen before searching');
+  await page.keyboard.press('/');
+  await page.keyboard.type('Standup');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(700);
+  const futureHits = await page.evaluate(() => (App.search && App.search.results || []).filter((e) => e.start > new Date()).length);
+  check(futureHits >= 25, 'searching a daily event shows the upcoming ones (' + futureHits + ' upcoming)');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+
+  // Google fails to send one calendar: its events stay instead of vanishing
+  const realList = fake.Calendar.Events.list;
+  fake.Calendar.Events.list = (calId, p) => { if (calId === 'work@group') throw new Error('Rate Limit Exceeded'); return realList(calId, p); };
+  const workBefore = await page.$$eval('.ev', (els) => els.filter((e) => /Standup|Client call/.test(e.textContent)).length);
+  await page.keyboard.press('r');
+  await page.waitForTimeout(800);
+  const workAfter = await page.$$eval('.ev', (els) => els.filter((e) => /Standup|Client call/.test(e.textContent)).length);
+  check(workBefore > 0 && workAfter === workBefore, 'when Google can\u2019t send a calendar, its events stay on screen (' + workBefore + ' → ' + workAfter + ')');
+  check(/last copy/.test(await page.textContent('#toasts')), 'and you\u2019re told it\u2019s showing the last copy');
+  fake.Calendar.Events.list = realList;
+
+  // a calendar added in Google appears without reloading
+  fake.state.calendars.push({ id: 'new@group', summary: 'Gym club', accessRole: 'owner', backgroundColor: '#0b8043', foregroundColor: '#ffffff', timeZone: 'UTC', selected: true });
+  fake.state.events['new@group'] = [];
+  fake.add('new@group', { summary: 'Leg day', start: { dateTime: isoAt(today, 7), timeZone: 'UTC' }, end: { dateTime: isoAt(today, 8), timeZone: 'UTC' } });
+  await page.evaluate(() => refreshCalendars());
+  await page.waitForTimeout(900);
+  check(await page.$('.cal:has-text("Gym club")') && /Leg day/.test(await page.textContent('#view')), 'a calendar added in Google shows up with its events');
+
+  // new events go to a calendar you can see
+  await page.click('.cal:has-text("me@example.com")');
+  await page.waitForTimeout(300);
+  const target = await page.evaluate(() => defaultCalendarId());
+  check(target !== 'me@example.com', 'with your main calendar hidden, new events go to a calendar that\u2019s shown (' + target + ')');
+  await page.click('.cal:has-text("me@example.com")');
+  await page.waitForTimeout(300);
+
+  // labelled links in Google descriptions keep their address
+  const dtext = await page.evaluate(() => descriptionText('Agenda<br><a href="https://example.com/meet">Join meeting</a>'));
+  check(dtext === 'Agenda\nJoin meeting (https://example.com/meet)', 'a labelled link in a description keeps its address');
+
+  // repeat rules move sensibly with a series
+  check(gas.pcShiftRule_('RRULE:FREQ=MONTHLY;BYMONTHDAY=15', 1) === 'RRULE:FREQ=MONTHLY;BYMONTHDAY=16', 'monthly on day 15 → day 16');
+  check(gas.pcShiftRule_('RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', 1) === 'RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', '"every weekday" keeps its days');
+  check(gas.pcShiftRule_('RRULE:FREQ=WEEKLY;BYDAY=SA', 1) === 'RRULE:FREQ=WEEKLY;BYDAY=SU', 'weekly on Saturday → Sunday');
+  check(gas.pcShiftRule_('RRULE:FREQ=MONTHLY;BYMONTHDAY=28', 3) === 'RRULE:FREQ=MONTHLY;BYMONTHDAY=28', 'a day past the 28th is left alone');
+
+  // broken saved settings never lock you out
+  props.phantomCalendarSettings = '{"theme":"skull","calVis":{"a';
+  const boot = JSON.parse(gas.pcBootstrap());
+  check(boot.settings === null && boot.calendars.length > 0, 'damaged saved settings are ignored instead of blocking the app');
+  let tooBig = false;
+  try { gas.pcSaveSettings(JSON.stringify({ x: 'y'.repeat(9000) })); } catch (e) { tooBig = true; }
+  check(tooBig, 'oversized settings are refused rather than saved cut off');
 
   await ctx.close();
   await browser.close();

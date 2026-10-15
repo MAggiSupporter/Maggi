@@ -53,6 +53,8 @@ const App = {
   syncQueued: false,
   lastSync: 0,
   lastAttempt: 0,
+  calsAt: 0,
+  warnedCals: new Set(),
   offline: false,
   syncErrors: null,
   epoch: 0,
@@ -76,6 +78,12 @@ const pushSettingsToServer = debounce(() => {
   if (App.backend && App.backend.kind === 'google') App.backend.saveSettings(App.settings).catch(() => {});
 }, 1500);
 function saveSettings() {
+  // forget show/hide choices for calendars that no longer exist
+  if (App.calendars.length) {
+    const kept = {};
+    for (const id of Object.keys(App.settings.calVis || {})) if (App.calMap.has(id)) kept[id] = App.settings.calVis[id];
+    App.settings.calVis = kept;
+  }
   lsSet(SETTINGS_KEY, App.settings);
   pushSettingsToServer();
 }
@@ -117,10 +125,29 @@ function toggleCalendar(id) {
   if (calVisible(c)) syncNow();
 }
 function writableCalendars() { return App.calendars.filter((c) => c.writable); }
+/** Where a new event goes: your main calendar, preferring calendars that are shown. */
 function defaultCalendarId() {
-  const vis = writableCalendars();
-  const p = vis.find((c) => c.primary);
-  return (p || vis[0] || {}).id;
+  const all = writableCalendars();
+  const pick = (list) => (list.find((c) => c.primary) || list[0] || {}).id;
+  return pick(all.filter(calVisible)) || pick(all);
+}
+
+/** Re-reads the calendar list so calendars added, renamed or removed in Google show up. */
+async function refreshCalendars() {
+  if (!App.backend || !App.backend.calendars) return;
+  App.calsAt = Date.now();
+  try {
+    const list = await App.backend.calendars();
+    if (!Array.isArray(list) || !list.length) return;
+    const sig = (cals) => cals.map((c) => c.id + '|' + c.name + '|' + c.color + '|' + c.accessRole).join(',');
+    const before = sig(App.calendars);
+    setCalendars(list);
+    if (sig(App.calendars) !== before) {
+      rebuildEvents();
+      requestRender();
+      syncNow();
+    }
+  } catch (e) { /* try again next time */ }
 }
 
 /* ---------------- events ---------------- */
@@ -266,16 +293,31 @@ async function syncNow() {
       windows: prepared.map((w) => ({ key: w.key, timeMin: w.timeMin.toISOString(), timeMax: w.timeMax.toISOString(), hash: w.hash }))
     });
     if (epoch !== App.epoch) { if (!App.pending) App.syncQueued = true; return; }
+    // a calendar Google couldn't read this time keeps its last known events,
+    // so a hiccup never looks like your events were deleted
+    const failed = new Set((res.errors || []).map((e) => e.calendarId));
     const next = {};
     let changed = Object.keys(App.win).length !== prepared.length;
     for (const w of prepared) {
       const r = res.windows && res.windows[w.key];
       if (!r) continue;
       const prev = App.win[w.key];
-      const raw = r.unchanged && prev ? prev.raw : (r.events || []);
+      let raw = r.unchanged && prev ? prev.raw : (r.events || []);
+      let hash = r.hash;
+      if (failed.size && !r.unchanged) {
+        raw = raw.concat(lastKnownEvents(failed, w.timeMin, w.timeMax));
+        hash = null;
+      }
       if (!r.unchanged) changed = true;
-      next[w.key] = { timeMin: w.timeMin, timeMax: w.timeMax, sig: w.sig, hash: r.hash, raw };
+      next[w.key] = { timeMin: w.timeMin, timeMax: w.timeMax, sig: w.sig, hash, raw };
     }
+    for (const id of failed) {
+      if (App.warnedCals.has(id)) continue;
+      App.warnedCals.add(id);
+      const c = App.calMap.get(id);
+      toast('Google didn\u2019t send \u201c' + (c ? c.name : id) + '\u201d just now, so you\u2019re seeing its last copy. Trying again shortly.');
+    }
+    for (const id of Array.from(App.warnedCals)) if (!failed.has(id)) App.warnedCals.delete(id);
     App.win = next;
     if (changed) rebuildEvents();
     App.lastSync = Date.now();
@@ -292,6 +334,23 @@ async function syncNow() {
     if (App.syncQueued) { App.syncQueued = false; setTimeout(syncNow, 250); }
   }
 }
+function rawRange(raw) {
+  const s = raw.start.date ? parseYmd(raw.start.date) : new Date(raw.start.dateTime);
+  const e = raw.end ? (raw.end.date ? parseYmd(raw.end.date) : new Date(raw.end.dateTime)) : s;
+  return [s, e];
+}
+function lastKnownEvents(calIds, from, to) {
+  const out = new Map();
+  for (const w of Object.values(App.win)) {
+    for (const raw of w.raw) {
+      if (!raw || !raw.start || !calIds.has(raw.calendarId)) continue;
+      const [s, e] = rawRange(raw);
+      if (s < to && (e > from || (e.getTime() === s.getTime() && s >= from))) out.set(raw.calendarId + '|' + raw.id, raw);
+    }
+  }
+  return Array.from(out.values());
+}
+
 let syncTimer = null;
 function scheduleSync(ms) {
   clearTimeout(syncTimer);
@@ -368,6 +427,8 @@ async function createEvent(draft) {
     const ev = normEvent(saved);
     if (!resource.recurrence) App.events.set(ev.key, ev);
     FX.callingCard(ev);
+    const cal = App.calMap.get(calId);
+    if (cal && !calVisible(cal)) toast('Saved to \u201c' + cal.name + '\u201d, which is hidden. Click its card under CONFIDANTS to show it.');
     return ev;
   } catch (err) {
     App.events.delete(tmpKey);
@@ -418,11 +479,18 @@ async function updateEvent(ev, patch, opts, local, undoLabel) {
 function undoTimeChange(orig, moved, opts) {
   const cur = App.events.get(orig.key) || moved;
   if (opts.scope === 'series') {
-    updateEvent(cur, {}, { scope: 'series', seriesId: orig.seriesId, shiftMs: orig.start - moved.start, durationMs: orig.end - orig.start, dayShift: dayDiff(moved.start, orig.start) },
+    updateEvent(cur, {}, { scope: 'series', seriesId: orig.seriesId, shiftMs: -opts.shiftMs, durationMs: orig.end - orig.start, dayShift: -opts.dayShift },
       { start: orig.start, end: orig.end });
   } else {
     updateEvent(cur, timePatch(orig, orig.start, orig.end), {}, { start: orig.start, end: orig.end });
   }
+}
+
+/** Where this occurrence would be if nobody had moved it on its own (for moving a whole series). */
+function seriesBase(ev) {
+  const o = ev.raw && ev.raw.originalStartTime;
+  if (!o || (!o.date && !o.dateTime)) return ev.start;
+  return o.date ? parseYmd(o.date) : new Date(o.dateTime);
 }
 
 /** Drag-and-drop and resize end up here. */
@@ -437,7 +505,8 @@ async function moveEvent(ev, newStart, newEnd) {
   Sfx.play('drop');
   const label = newEnd - newStart !== ev.end - ev.start && newStart.getTime() === ev.start.getTime() ? 'Event resized.' : 'Event moved to ' + (ev.allDay ? fmtDateShort(newStart) : fmtDateShort(newStart) + ', ' + fmtTime(newStart)) + '.';
   if (scope === 'series') {
-    await updateEvent(ev, {}, { scope: 'series', seriesId: ev.seriesId, shiftMs: newStart - ev.start, durationMs: newEnd - newStart, dayShift: dayDiff(ev.start, newStart) },
+    const base = seriesBase(ev);
+    await updateEvent(ev, {}, { scope: 'series', seriesId: ev.seriesId, shiftMs: newStart - base, durationMs: newEnd - newStart, dayShift: dayDiff(base, newStart) },
       { start: newStart, end: newEnd }, label);
   } else {
     await updateEvent(ev, timePatch(ev, newStart, newEnd), {}, { start: newStart, end: newEnd }, label);

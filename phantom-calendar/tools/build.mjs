@@ -30,3 +30,13 @@ html = html.replace('<!doctype html>\n', '<!doctype html>\n' + banner);
 const out = path.join(root, 'apps-script', 'Index.html');
 fs.writeFileSync(out, html);
 console.log('Wrote ' + path.relative(process.cwd(), out) + ' (' + Math.round(html.length / 1024) + ' KB)');
+
+// Code.gs carries a copy of the small loader page, so pasting Code.gs alone is enough.
+const codePath = path.join(root, 'apps-script', 'Code.gs');
+const loader = fs.readFileSync(path.join(root, 'apps-script', 'loader', 'Index.html'), 'utf8');
+const lines = loader.replace(/\n$/, '').split('\n').map((l) => '  ' + JSON.stringify(l));
+const block = '// BEGIN LOADER\nvar PC_LOADER_HTML = [\n' + lines.join(',\n') + '\n].join(\'\\n\');\n// END LOADER';
+const code = fs.readFileSync(codePath, 'utf8');
+if (!/\/\/ BEGIN LOADER[\s\S]*?\/\/ END LOADER/.test(code)) throw new Error('Code.gs is missing its LOADER markers.');
+fs.writeFileSync(codePath, code.replace(/\/\/ BEGIN LOADER[\s\S]*?\/\/ END LOADER/, () => block));
+console.log('Updated apps-script/Code.gs (built-in loader)');

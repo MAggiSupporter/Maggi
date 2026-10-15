@@ -40,9 +40,11 @@ function makeCalendar() {
     calendars: [
       { id: 'me@example.com', summary: 'me@example.com', primary: true, accessRole: 'owner', backgroundColor: '#9fe1e7', foregroundColor: '#000000', timeZone: 'UTC', selected: true },
       { id: 'work@group', summary: 'Work', accessRole: 'owner', backgroundColor: '#16a765', foregroundColor: '#000000', timeZone: 'UTC', selected: true },
-      { id: 'holidays@group', summary: 'Holidays', accessRole: 'reader', backgroundColor: '#f83a22', foregroundColor: '#000000', timeZone: 'UTC', selected: true }
+      { id: 'holidays@group', summary: 'Holidays', accessRole: 'reader', backgroundColor: '#f83a22', foregroundColor: '#000000', timeZone: 'UTC', selected: true },
+      // unticked in Google: the API leaves "selected" out entirely
+      { id: 'old@group', summary: 'Old stuff', accessRole: 'owner', backgroundColor: '#999999', foregroundColor: '#000000', timeZone: 'UTC' }
     ],
-    events: { 'me@example.com': [], 'work@group': [], 'holidays@group': [] },
+    events: { 'me@example.com': [], 'work@group': [], 'holidays@group': [], 'old@group': [] },
     exceptions: {},
     calls: [],
     nextId: 1

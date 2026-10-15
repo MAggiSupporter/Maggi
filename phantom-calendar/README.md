@@ -10,7 +10,7 @@ resize events. Repeating events, search, colours, notifications. And it's **two-
 - Change something in the app and it's saved to Google Calendar straight away.
 - Change something in Google Calendar (on your phone, on the website, or when someone
   invites you) and it shows up in the app within 30 seconds. It also checks the moment
-  you switch back to the tab.
+  you switch back to the tab. [How syncing works](#how-syncing-works)
 
 ![Week view](docs/week.jpg)
 
@@ -23,87 +23,98 @@ resize events. Repeating events, search, colours, notifications. And it's **two-
 
 ---
 
-## Try it first (30 seconds, no setup)
+## Try it first (no setup)
 
-1. Download **[apps-script/Index.html](apps-script/Index.html)**. On that page, click the
-   **download** button (the ⬇ arrow at the top right of the file).
-2. Double-click the downloaded file. It opens in your web browser in **demo mode**, with fake
-   events saved only in that browser. Click around, drag things and break things.
+Download **[the app file](https://github.com/MAggiSupporter/Maggi/blob/claude/epic-thompson-258mz9/phantom-calendar/apps-script/Index.html)** with the **Download raw file** button (the ⬇ arrow at
+the top right), then double-click it. It opens in your browser in **demo mode**: fake events,
+saved only in that browser, never sent anywhere.
 
 ---
 
-## Link it to your Google Calendar (about 5 minutes)
+## Link it to your Google Calendar (about 5 minutes, no coding)
 
-It's free and there's nothing to install. The app runs inside **your own Google account**
-using Google Apps Script, Google's free tool for small apps. You don't need API keys, a
-server or a Google Cloud account.
+The app lives inside **your own Google account**, using Google Apps Script, Google's free
+tool for small apps. You copy **one** block of text, paste it into Google, and press a few
+buttons. Nothing to install, no keys, no servers.
 
-You'll copy two files into Google, press a few buttons, and get a private link that only
-you can open.
+Do this on a **computer** (copying and pasting on a phone is painful). Afterwards you can
+use the app on your phone too.
 
-### Step 1: Create the project
+### Step 1: Copy the code
+
+1. Open this link: **<https://raw.githubusercontent.com/MAggiSupporter/Maggi/claude/epic-thompson-258mz9/phantom-calendar/apps-script/Code.gs>**
+2. It's a page full of code. You don't need to read it. Press **Ctrl+A** (Mac: **⌘+A**) to
+   select it all, then **Ctrl+C** (Mac: **⌘+C**) to copy it.
+
+### Step 2: Paste it into Google
 
 1. Go to **<https://script.google.com>** and sign in with the Google account whose calendar
-   you want.
+   you want to use.
 2. Click **New project** (top left).
-3. Click **Untitled project** at the top and rename it **Phantom Calendar**.
+3. You'll see a little bit of code (`function myFunction() { }`). Click inside it, press
+   **Ctrl+A** (Mac: **⌘+A**) to select it, then **Ctrl+V** (Mac: **⌘+V**) to paste over it.
+4. Press **Ctrl+S** (Mac: **⌘+S**) to save. If it asks for a project name, type
+   **Phantom Calendar**.
 
-### Step 2: Paste the Google-side code (`Code.gs`)
+### Step 3: Switch on Google Calendar for it
 
-1. The editor shows a file called **Code.gs** containing `function myFunction() {}`.
-   Click inside it, press **Ctrl+A** (Mac: **⌘+A**), then **Delete**, so it's empty.
-2. In a new tab, open **[apps-script/Code.gs](apps-script/Code.gs)** here on GitHub. Click the
-   **Copy raw file** button at the top right of the file (it looks like two overlapping
-   squares).
-3. Go back to the Apps Script tab, click inside the empty Code.gs and paste (**Ctrl+V** /
-   **⌘+V**).
+1. On the left, find the word **Services** and click the **+** next to it.
+2. Click **Google Calendar API** in the list, then click **Add**.
 
-### Step 3: Add the app itself (`Index.html`)
-
-1. On the left, next to **Files**, click the **+**, then choose **HTML**.
-2. Type **`Index`** and press Enter. Use a capital **I** and don't type `.html`, because the
-   editor adds it for you.
-3. The new file has some sample code in it. Select it all and delete it.
-4. Open **[apps-script/Index.html](apps-script/Index.html)** here on GitHub, click **Copy raw
-   file**, and paste it into the empty Index.html. It's a long file, which is normal.
-5. Click the 💾 **Save** icon, or press **Ctrl+S** / **⌘+S**.
-
-### Step 4: Turn on Google's calendar service
-
-1. On the left, next to **Services**, click the **+**.
-2. In the list, click **Google Calendar API**, then click **Add**. Leave the name as `Calendar`.
-
-### Step 5: Deploy it
+### Step 4: Turn it into an app
 
 1. Click the blue **Deploy** button (top right), then **New deployment**.
-2. Next to **Select type**, click the ⚙️ gear and choose **Web app**.
-3. Fill in:
-   - **Description:** anything, for example `v1`
-   - **Execute as:** **Me**
-   - **Who has access:** **Only myself**
+2. Click the ⚙️ gear next to **Select type** and choose **Web app**.
+3. Set **Execute as** to **Me**, and **Who has access** to **Only myself**.
 4. Click **Deploy**.
 
-### Step 6: Give it permission
+### Step 5: Say yes to Google
 
-1. Click **Authorize access** and choose your Google account.
-2. Google warns **"Google hasn't verified this app"**. That's expected, because you just made
-   the app yourself and it isn't published anywhere. Click **Advanced**, then **Go to Phantom
-   Calendar (unsafe)**.
-3. Click **Allow**. The app asks for two things: to see and edit your calendars (it's a
-   calendar app, so it needs that), and to see your email address, which it shows in the
-   side panel.
+1. Click **Authorize access**, then pick your Google account. (If nothing happens, your
+   browser blocked a pop-up. Allow pop-ups for script.google.com and click it again.)
+2. Google warns **"Google hasn't verified this app"**. That's normal: you just made this app
+   yourself and it isn't published anywhere. Click **Advanced**, then **Go to Phantom Calendar
+   (unsafe)**.
+3. Google lists what the app may do. **Tick every box** (or **Select all**), then click
+   **Continue** or **Allow**. Google's wording sounds scary ("see, edit, share, and
+   permanently delete all the calendars…"). That's Google's standard sentence for *any*
+   calendar app. This one only creates, changes and deletes the events you tell it to.
 
-### Step 7: Open it
+### Step 6: Open your app 🎉
 
-1. Google shows a **Web app** URL ending in `/exec`. Click **Copy**, paste it into your
-   browser's address bar, and press Enter. 🎉
-2. **Bookmark it.** That link *is* your app.
-3. **On your phone:** open the same link in Chrome or Safari while you're signed in to the
-   same Google account, then choose **Add to Home Screen**.
+1. Google shows a **Web app** link ending in `/exec`. Click **Copy**, paste it into your
+   browser's address bar and press Enter.
+2. **Bookmark it.** That link *is* your app, and only you can open it.
+3. **On your phone:** open the same link in Chrome or Safari, signed in to the same Google
+   account, and choose **Add to Home Screen**.
 
-Only you can open the link. Anyone else who tries it gets a Google "access denied" page.
+> **Want everything stored inside your account?** By default the app's screens download from
+> this GitHub page each time you open it, which is how you get fixes automatically. To keep a
+> fixed copy instead: in the Apps Script editor click **+** next to **Files** → **HTML**, name
+> it `Index`, and paste in [the app file](https://github.com/MAggiSupporter/Maggi/blob/claude/epic-thompson-258mz9/phantom-calendar/apps-script/Index.html) (use **Copy raw file**). Then do
+> Deploy → Manage deployments → ✏️ → Version: **New version** → Deploy.
 
 ---
+
+## How syncing works
+
+There is only **one** copy of your calendar: the one in Google. Phantom Calendar is just a
+different-looking window onto it.
+
+- **You add, move or delete something in Phantom Calendar** → it's saved to Google
+  Calendar straight away. Google's own app and website will show it next time they refresh
+  (usually seconds).
+- **You add, move or delete something in Google Calendar** (on your phone, on the website,
+  or someone invites you) → Phantom Calendar picks it up within **30 seconds** while it's
+  open, and immediately when you come back to its tab. Press **R** to check right now.
+- **Phantom Calendar is closed** → nothing is lost. Everything is in Google, and the app
+  shows it all next time you open it.
+- **Same event changed in both places at once** → the change saved last wins.
+
+A few things only Google's own apps can do: invite guests, add a Meet link, and answer
+invitations (yes/no/maybe). Reminders you set in Phantom Calendar are delivered by Google's
+own apps, like any other Google Calendar reminder.
+
 
 ## What it does
 
@@ -134,52 +145,58 @@ your phone and computer match.
 
 ## Updating to a newer version
 
-When `Index.html` or `Code.gs` changes here:
+Mostly you don't have to: the app's screens download fresh from GitHub each time you open
+it. Only if `Code.gs` itself changes (it's rare, and the README will say so):
 
-1. Paste the new file(s) over the old ones in the Apps Script editor, then click **Save**.
-2. Click **Deploy → Manage deployments**. Select your deployment, click the ✏️ pencil, set
-   **Version** to **New version**, then click **Deploy**.
+1. Copy the new code from the Step 1 link and paste it over the old code. Press **Ctrl+S**.
+2. Click **Deploy → Manage deployments**, click the ✏️ pencil, set **Version** to
+   **New version**, and click **Deploy**. Your link stays the same.
 
-Your link stays the same.
-
----
 
 ## If something goes wrong
 
-- **A screen says "ONE MORE STEP".** The calendar service isn't on yet. Do
-  [Step 4](#step-4-turn-on-googles-calendar-service), then **Deploy → Manage deployments**,
-  click ✏️, set **Version** to **New version**, and click **Deploy**. Reload the page.
-- **"Sorry, unable to open the file at this time"** or a blank page. This usually happens
-  when you're signed in to **several Google accounts** at once, which is a known Google Apps
-  Script problem. Open the link in a private/incognito window and sign in only to the account
-  you used in Step 1.
-- **"Script function not found: doGet".** Code.gs wasn't saved, or it was pasted into the
-  wrong file. Redo Step 2, click Save, then publish a new version (see above).
-- **"No HTML file named Index was found".** The HTML file has to be called exactly `Index`.
-  Rename it from the ⋮ menu next to the file, then publish a new version.
-- **Something you changed in Google Calendar hasn't appeared.** Press `R`, or click the
-  **SYNCED** chip at the top. In the Hideout you can make it check every 15 seconds.
+- **A screen says "ONE MORE STEP".** You skipped Step 3. Do it, then click **Deploy → Manage
+  deployments**, the ✏️ pencil, **Version: New version**, **Deploy**, and reload the app.
+- **A screen says "SECURITY ALERT" and mentions permission.** A box was left unticked in
+  Step 5. In the Apps Script editor, pick **pcBootstrap** in the list next to **▷ Run** at the
+  top, click **Run**, then **Review permissions**, tick every box and allow. Reload the app.
+- **"Sorry, unable to open the file at this time"** or a blank page. You're probably signed
+  in to **several Google accounts** at once (a known Google problem). Open the link in a
+  private/incognito window and sign in only to the account you used in Step 2.
+- **"Script function not found: doGet".** The code wasn't saved, or not all of it was
+  pasted. Redo Steps 1 and 2 and press **Ctrl+S**, then publish a new version (see above).
+- **"Couldn't download the app."** The app's screens come from GitHub, so you need to be
+  online the first time. After that it keeps a copy and works even if GitHub is down.
+- **Something you changed in Google hasn't appeared.** Press **R**, or click the **SYNCED**
+  chip at the top. In the Hideout (⚙️) you can make it check every 15 seconds.
 - **A calendar's events are missing.** Its card under **CONFIDANTS** is probably faded,
-  which means hidden. Click the card to show it again.
-- **Dragging doesn't work on some events.** You can only change events on calendars you're
-  allowed to edit. Holiday calendars and events other people invited you to are read-only.
-- **You want to remove the app's access.** Go to
-  **<https://myaccount.google.com/permissions>** and remove **Phantom Calendar**. You can also
-  just delete the project at script.google.com.
+  which means hidden. Click the card to show it.
+- **Dragging doesn't work on some events.** Holiday calendars, calendars shared with you
+  read-only, and invitations from other people can't be changed here.
+- **On an iPhone, the Home Screen icon asks you to sign in again.** Home Screen apps keep
+  their own sign-in. Sign in once, or delete the icon and add it again with **Open as Web
+  App** switched off.
+- **You want to remove the app's access.** Go to **<https://myaccount.google.com/permissions>**
+  and remove **Phantom Calendar**. You can also just delete the project at script.google.com.
 
 ---
+
 
 ## Privacy
 
 Everything stays between you and Google. The code that touches your calendar is
 `Code.gs`, which you can read, and it runs inside your Google account. The app uses no
-server of its own and has no tracking. The only other places it contacts are Google Fonts
-(for the lettering) and, only if you turn weather on, Open-Meteo, which receives the city
-name you type.
+server of its own and has no tracking. Besides Google, it contacts GitHub (to download its
+screens, unless you added your own `Index` file), Google Fonts (for the lettering), and,
+only if you turn weather on, Open-Meteo, which receives the city name you type.
 
 ---
 
 ## For tinkerers
+
+`apps-script/Code.gs` is the only file people need to paste: it carries a small loader page
+(`apps-script/loader/Index.html`, copied in by the build) that downloads the full app from
+this repo, falls back to a fixed commit, and keeps a copy for offline use.
 
 The app's source is in `src/`: `index.html`, `styles.css`, and `js/`. The JavaScript is split
 into utilities, effects, the Google/demo connection, state and sync, views, dialogs and
