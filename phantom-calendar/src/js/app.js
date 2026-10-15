@@ -330,11 +330,14 @@ function onDeviceLocked() {
   });
 }
 
-/** The passcode screen. mode 'setup' chooses one, 'unlock' enters it. Resolves once this device has its key. */
+/**
+ * The passcode screen. mode 'setup' chooses the first one, 'unlock' enters it,
+ * 'change' replaces a temporary one. Resolves once this device has its key.
+ */
 function passcodeGate(mode, info) {
   return new Promise((resolve) => {
     $('#boot').classList.add('is-out');
-    const setup = mode === 'setup';
+    const setup = mode === 'setup' || mode === 'change';
     const pass = h('input', {
       class: 'f-input', type: 'password', id: 'gatePass', 'aria-label': setup ? 'New passcode' : 'Passcode',
       autocomplete: setup ? 'new-password' : 'current-password', placeholder: setup ? 'Choose a passcode' : 'Passcode'
@@ -363,13 +366,17 @@ function passcodeGate(mode, info) {
         btn.disabled = true;
         btn.textContent = 'CHECKING…';
         try {
-          if (setup) await App.backend.setPasscode(p);
-          else await App.backend.unlock(p);
+          if (mode === 'setup') await App.backend.setPasscode(p);
+          else if (mode === 'change') await App.backend.changePasscode(p);
+          else {
+            const r = await App.backend.unlock(p);
+            if (r && r.mustChange) { node.remove(); passcodeGate('change').then(resolve); return; }
+          }
           done();
         } catch (er) {
           const m = String((er && er.message) || er);
           if (/PC_AUTH_SETUP/.test(m)) { node.remove(); passcodeGate('setup').then(resolve); return; }
-          if (/already set/.test(m)) { node.remove(); passcodeGate('unlock').then(resolve); return; }
+          if (/already set/.test(m)) { node.remove(); passcodeGate('unlock', { taken: true }).then(resolve); return; }
           show(errMsg(er));
           pass.value = '';
           pass.focus();
@@ -379,13 +386,17 @@ function passcodeGate(mode, info) {
         }
       }
     }, pass, again, err, h('div', { class: 'fatal-actions' }, btn));
+    const intro = mode === 'change'
+      ? 'You used a temporary passcode. Choose your own now: at least 6 characters. Every other device will ask for it once.'
+      : setup
+        ? 'Your app link opens in any browser now, whichever Google account is signed in. A passcode keeps your calendar yours: even someone who gets hold of the link can\u2019t get in without it. Use at least 6 characters. Each device asks once, then remembers.'
+        : 'Enter your passcode to unlock this device. It\u2019ll remember, so you only do this once here.';
     const box = h('div', { class: 'fatal-box' },
-      ransom(setup ? 'CHOOSE A PASSCODE' : 'SHOW YOUR CARD', { seed: mode }),
-      setup
-        ? h('p', null, 'Your app link opens in any browser now, whichever Google account is signed in. A passcode keeps your calendar yours: even someone who gets hold of the link can\u2019t get in without it. Use at least 6 characters. Each device asks once, then remembers.')
-        : h('p', null, 'Enter your passcode to unlock this device. It\u2019ll remember, so you only do this once here.'),
+      ransom(mode === 'change' ? 'NEW PASSCODE' : setup ? 'CHOOSE A PASSCODE' : 'SHOW YOUR CARD', { seed: mode }),
+      h('p', null, intro),
+      info && info.taken ? h('p', { class: 'gate-warn' }, 'A passcode was already chosen for this app. If it wasn\u2019t you, someone else has your link: run resetPasscode (below), then make a new deployment so the old link stops working.') : null,
       form,
-      setup ? null : h('p', { class: 'gate-help' }, 'Forgot it? Open your project at script.google.com, pick ', h('b', null, 'resetPasscode'), ' in the list next to ', h('b', null, '▷ Run'), ', click ', h('b', null, 'Run'), ', then reload this page and choose a new one.'));
+      setup ? null : h('p', { class: 'gate-help' }, 'Forgot it? Open your project at script.google.com, pick ', h('b', null, 'resetPasscode'), ' in the list next to ', h('b', null, '▷ Run'), ' and click ', h('b', null, 'Run'), '. The log at the bottom shows a temporary passcode: type it here.'));
     node.append(box);
     document.body.append(node);
     if (info && info.lockedForMs) show('Too many wrong tries. Wait ' + Math.ceil(info.lockedForMs / 60000) + ' minutes, then try again.');
@@ -399,6 +410,7 @@ function reveal() {
   $('#app').hidden = false;
   $('.app').classList.toggle('side-collapsed', !App.settings.sidebar);
   $('#demoBanner').hidden = App.backend.kind !== 'demo';
+  $('#legacyBanner').hidden = !(App.backend.kind === 'google' && App.backend.legacy);
   renderAll();
   const b = $('#boot');
   b.classList.add('is-out');

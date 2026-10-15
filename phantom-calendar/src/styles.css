@@ -467,6 +467,15 @@ a { color: var(--accent); }
   font: 600 13px/1.25 var(--f-body);
   transform: skewX(-6deg);
 }
+.legacy-banner {
+  position: relative; z-index: 2;
+  display: flex; gap: 12px; align-items: center;
+  margin: 0 8px 8px 0; padding: 8px 14px;
+  background: var(--slab); color: var(--paper);
+  border: 3px solid #e5191c; box-shadow: 5px 5px 0 #e5191c;
+  font: 700 14px/1.3 var(--f-body);
+}
+.legacy-banner b { flex: none; font: 20px/1 var(--f-display); letter-spacing: 1px; background: #e5191c; color: #fff; padding: 4px 8px 2px; }
 .demo-banner b { font: 18px/1 var(--f-display); letter-spacing: 1px; background: var(--slab); color: var(--paper); padding: 3px 8px 1px; }
 
 /* ---------------- time grid (day / week) ---------------- */
@@ -1022,6 +1031,7 @@ kbd { min-width: 28px; padding: 3px 7px 1px; text-align: center; font: 16px/1 va
 .gate-form { display: grid; gap: 10px; max-width: 380px; margin-top: 18px; }
 .gate-form .fatal-actions { margin-top: 8px; }
 .gate-form .f-input { background: var(--bg-3); color: var(--paper); font-size: 18px; }
+.gate-warn { padding: 10px 12px; border-left: 6px solid #e5191c; background: var(--bg-3); }
 .gate-help { margin-top: 26px !important; font-size: 14px !important; color: var(--muted); }
 
 /* ---------------- motion settings ---------------- */

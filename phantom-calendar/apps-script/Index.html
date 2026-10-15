@@ -480,6 +480,15 @@ a { color: var(--accent); }
   font: 600 13px/1.25 var(--f-body);
   transform: skewX(-6deg);
 }
+.legacy-banner {
+  position: relative; z-index: 2;
+  display: flex; gap: 12px; align-items: center;
+  margin: 0 8px 8px 0; padding: 8px 14px;
+  background: var(--slab); color: var(--paper);
+  border: 3px solid #e5191c; box-shadow: 5px 5px 0 #e5191c;
+  font: 700 14px/1.3 var(--f-body);
+}
+.legacy-banner b { flex: none; font: 20px/1 var(--f-display); letter-spacing: 1px; background: #e5191c; color: #fff; padding: 4px 8px 2px; }
 .demo-banner b { font: 18px/1 var(--f-display); letter-spacing: 1px; background: var(--slab); color: var(--paper); padding: 3px 8px 1px; }
 
 /* ---------------- time grid (day / week) ---------------- */
@@ -1035,6 +1044,7 @@ kbd { min-width: 28px; padding: 3px 7px 1px; text-align: center; font: 16px/1 va
 .gate-form { display: grid; gap: 10px; max-width: 380px; margin-top: 18px; }
 .gate-form .fatal-actions { margin-top: 8px; }
 .gate-form .f-input { background: var(--bg-3); color: var(--paper); font-size: 18px; }
+.gate-warn { padding: 10px 12px; border-left: 6px solid #e5191c; background: var(--bg-3); }
 .gate-help { margin-top: 26px !important; font-size: 14px !important; color: var(--muted); }
 
 /* ---------------- motion settings ---------------- */
@@ -1228,6 +1238,9 @@ kbd { min-width: 28px; padding: 3px 7px 1px; text-align: center; font: 16px/1 va
 
   <main class="stage" id="stage">
     <div class="stage-frame" aria-hidden="true"></div>
+    <div class="legacy-banner" id="legacyBanner" role="alert" hidden>
+      <b>UPDATE NEEDED</b> <span>Your Code.gs is an old copy with no passcode lock. If <i>Who has access</i> is set to <i>Anyone</i>, anyone with your link can open your calendar. Paste the new Code.gs (setup page, step 1), then deploy a new version.</span>
+    </div>
     <div class="demo-banner" id="demoBanner" hidden>
       <b>DEMO MODE</b> <span>Fake events, saved in this browser only. Follow README.md to link your Google Calendar.</span>
     </div>
@@ -1843,6 +1856,14 @@ const GoogleBackend = {
     const r = await this.call('pcChangePasscode', passcode);
     this.saveKey(r.token);
     return r;
+  },
+  /** Signs this device out on the server too, so a copied key stops working. */
+  async lockDevice() {
+    const token = this.token;
+    this.saveKey(null);
+    if (!this.legacy && token && this.has('pcLockDevice')) {
+      try { await this.raw('pcLockDevice', token); } catch (e) { /* the key is gone from here either way */ }
+    }
   },
 
   bootstrap() { return this.call('pcBootstrap'); },
@@ -4372,7 +4393,7 @@ function openSettings() {
       body.append(sec('PASSCODE',
         h('div', { class: 'f-row' }, np, np2, h('button', { class: 'jag-btn', onclick: change }, 'CHANGE')),
         h('div', { class: 'f-hint' }, 'Each device asks for it once. Change it if you think someone else has your app link: every device then has to enter the new one.'),
-        h('div', { style: { marginTop: '10px' } }, h('button', { class: 'jag-btn ghost', onclick: () => { closeAllLayers(); App.backend.saveKey(null); onDeviceLocked(); } }, icon('lock'), ' LOCK THIS DEVICE'))));
+        h('div', { style: { marginTop: '10px' } }, h('button', { class: 'jag-btn ghost', onclick: async () => { closeAllLayers(); await App.backend.lockDevice(); onDeviceLocked(); } }, icon('lock'), ' LOCK THIS DEVICE'))));
     }
     if (App.backend.kind === 'demo') {
       body.append(sec('DEMO MODE', h('div', { class: 'f-hint', style: { marginBottom: '10px' } }, 'You’re looking at fake events stored in this browser. To use your real Google Calendar, follow README.md (about 5 minutes).'),
@@ -4757,11 +4778,14 @@ function onDeviceLocked() {
   });
 }
 
-/** The passcode screen. mode 'setup' chooses one, 'unlock' enters it. Resolves once this device has its key. */
+/**
+ * The passcode screen. mode 'setup' chooses the first one, 'unlock' enters it,
+ * 'change' replaces a temporary one. Resolves once this device has its key.
+ */
 function passcodeGate(mode, info) {
   return new Promise((resolve) => {
     $('#boot').classList.add('is-out');
-    const setup = mode === 'setup';
+    const setup = mode === 'setup' || mode === 'change';
     const pass = h('input', {
       class: 'f-input', type: 'password', id: 'gatePass', 'aria-label': setup ? 'New passcode' : 'Passcode',
       autocomplete: setup ? 'new-password' : 'current-password', placeholder: setup ? 'Choose a passcode' : 'Passcode'
@@ -4790,13 +4814,17 @@ function passcodeGate(mode, info) {
         btn.disabled = true;
         btn.textContent = 'CHECKING…';
         try {
-          if (setup) await App.backend.setPasscode(p);
-          else await App.backend.unlock(p);
+          if (mode === 'setup') await App.backend.setPasscode(p);
+          else if (mode === 'change') await App.backend.changePasscode(p);
+          else {
+            const r = await App.backend.unlock(p);
+            if (r && r.mustChange) { node.remove(); passcodeGate('change').then(resolve); return; }
+          }
           done();
         } catch (er) {
           const m = String((er && er.message) || er);
           if (/PC_AUTH_SETUP/.test(m)) { node.remove(); passcodeGate('setup').then(resolve); return; }
-          if (/already set/.test(m)) { node.remove(); passcodeGate('unlock').then(resolve); return; }
+          if (/already set/.test(m)) { node.remove(); passcodeGate('unlock', { taken: true }).then(resolve); return; }
           show(errMsg(er));
           pass.value = '';
           pass.focus();
@@ -4806,13 +4834,17 @@ function passcodeGate(mode, info) {
         }
       }
     }, pass, again, err, h('div', { class: 'fatal-actions' }, btn));
+    const intro = mode === 'change'
+      ? 'You used a temporary passcode. Choose your own now: at least 6 characters. Every other device will ask for it once.'
+      : setup
+        ? 'Your app link opens in any browser now, whichever Google account is signed in. A passcode keeps your calendar yours: even someone who gets hold of the link can\u2019t get in without it. Use at least 6 characters. Each device asks once, then remembers.'
+        : 'Enter your passcode to unlock this device. It\u2019ll remember, so you only do this once here.';
     const box = h('div', { class: 'fatal-box' },
-      ransom(setup ? 'CHOOSE A PASSCODE' : 'SHOW YOUR CARD', { seed: mode }),
-      setup
-        ? h('p', null, 'Your app link opens in any browser now, whichever Google account is signed in. A passcode keeps your calendar yours: even someone who gets hold of the link can\u2019t get in without it. Use at least 6 characters. Each device asks once, then remembers.')
-        : h('p', null, 'Enter your passcode to unlock this device. It\u2019ll remember, so you only do this once here.'),
+      ransom(mode === 'change' ? 'NEW PASSCODE' : setup ? 'CHOOSE A PASSCODE' : 'SHOW YOUR CARD', { seed: mode }),
+      h('p', null, intro),
+      info && info.taken ? h('p', { class: 'gate-warn' }, 'A passcode was already chosen for this app. If it wasn\u2019t you, someone else has your link: run resetPasscode (below), then make a new deployment so the old link stops working.') : null,
       form,
-      setup ? null : h('p', { class: 'gate-help' }, 'Forgot it? Open your project at script.google.com, pick ', h('b', null, 'resetPasscode'), ' in the list next to ', h('b', null, '▷ Run'), ', click ', h('b', null, 'Run'), ', then reload this page and choose a new one.'));
+      setup ? null : h('p', { class: 'gate-help' }, 'Forgot it? Open your project at script.google.com, pick ', h('b', null, 'resetPasscode'), ' in the list next to ', h('b', null, '▷ Run'), ' and click ', h('b', null, 'Run'), '. The log at the bottom shows a temporary passcode: type it here.'));
     node.append(box);
     document.body.append(node);
     if (info && info.lockedForMs) show('Too many wrong tries. Wait ' + Math.ceil(info.lockedForMs / 60000) + ' minutes, then try again.');
@@ -4826,6 +4858,7 @@ function reveal() {
   $('#app').hidden = false;
   $('.app').classList.toggle('side-collapsed', !App.settings.sidebar);
   $('#demoBanner').hidden = App.backend.kind !== 'demo';
+  $('#legacyBanner').hidden = !(App.backend.kind === 'google' && App.backend.legacy);
   renderAll();
   const b = $('#boot');
   b.classList.add('is-out');

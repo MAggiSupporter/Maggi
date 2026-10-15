@@ -73,6 +73,14 @@ const GoogleBackend = {
     this.saveKey(r.token);
     return r;
   },
+  /** Signs this device out on the server too, so a copied key stops working. */
+  async lockDevice() {
+    const token = this.token;
+    this.saveKey(null);
+    if (!this.legacy && token && this.has('pcLockDevice')) {
+      try { await this.raw('pcLockDevice', token); } catch (e) { /* the key is gone from here either way */ }
+    }
+  },
 
   bootstrap() { return this.call('pcBootstrap'); },
   calendars() { return this.call('pcCalendars').then((r) => r.calendars); },

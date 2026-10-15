@@ -615,7 +615,7 @@ function openSettings() {
       body.append(sec('PASSCODE',
         h('div', { class: 'f-row' }, np, np2, h('button', { class: 'jag-btn', onclick: change }, 'CHANGE')),
         h('div', { class: 'f-hint' }, 'Each device asks for it once. Change it if you think someone else has your app link: every device then has to enter the new one.'),
-        h('div', { style: { marginTop: '10px' } }, h('button', { class: 'jag-btn ghost', onclick: () => { closeAllLayers(); App.backend.saveKey(null); onDeviceLocked(); } }, icon('lock'), ' LOCK THIS DEVICE'))));
+        h('div', { style: { marginTop: '10px' } }, h('button', { class: 'jag-btn ghost', onclick: async () => { closeAllLayers(); await App.backend.lockDevice(); onDeviceLocked(); } }, icon('lock'), ' LOCK THIS DEVICE'))));
     }
     if (App.backend.kind === 'demo') {
       body.append(sec('DEMO MODE', h('div', { class: 'f-hint', style: { marginBottom: '10px' } }, 'You’re looking at fake events stored in this browser. To use your real Google Calendar, follow README.md (about 5 minutes).'),

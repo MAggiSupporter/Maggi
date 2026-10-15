@@ -16,11 +16,13 @@
  * it refuses to work without it.
  *
  * Forgot the passcode? Pick resetPasscode next to ▷ Run at the top of the
- * editor, click Run, then open the app and choose a new one.
+ * editor and click Run. The log at the bottom shows a temporary passcode:
+ * type it into the app, then choose a new one.
  *
- * The app's screens download from the project's GitHub page each time you open
- * it, so fixes arrive on their own. To keep everything inside your account
- * instead, also add an HTML file named "Index" containing apps-script/Index.html.
+ * The app's screens download from the project's GitHub page: always one exact,
+ * fingerprint-checked version, so nobody can swap in different code. To keep
+ * everything inside your account instead, also add an HTML file named "Index"
+ * containing apps-script/Index.html.
  *
  * Nothing here sends your data anywhere except between you and Google.
  */
@@ -28,6 +30,8 @@
 var PC_SETTINGS_KEY = 'phantomCalendarSettings';
 var PC_PASS_KEY = 'phantomCalendarPasscode';
 var PC_FAIL_KEY = 'phantomCalendarFailures';
+var PC_KEYS_KEY = 'phantomCalendarDeviceKeys';
+var PC_MAX_KEYS = 40;
 var PC_MAX_TRIES = 8;
 var PC_LOCK_MS = 15 * 60 * 1000;
 var PC_MAX_PAGES = 10;
@@ -38,6 +42,8 @@ function doGet() {
   var page;
   try {
     page = HtmlService.createHtmlOutputFromFile('Index');
+    // an "Index" file from before the passcode lock can't unlock anything: ignore it
+    if (page.getContent().indexOf('pcAuthState') === -1) throw new Error('outdated Index file');
   } catch (e) {
     page = HtmlService.createHtmlOutput(PC_LOADER_HTML);
   }
@@ -74,7 +80,8 @@ function pcSetPasscode(passcode) {
     pcValidPasscode_(passcode);
     var rec = pcMakePass_(String(passcode));
     pcProps_().setProperty(PC_PASS_KEY, JSON.stringify(rec));
-    return JSON.stringify({ token: pcToken_(rec) });
+    pcProps_().deleteProperty(PC_KEYS_KEY);
+    return JSON.stringify({ token: pcIssueKey_() });
   } finally {
     lock.releaseLock();
   }
@@ -99,26 +106,49 @@ function pcUnlock(passcode) {
       throw new Error(f.until > now ? 'PC_LOCKED: Too many wrong tries. Wait 15 minutes, then try again.' : 'PC_AUTH: That passcode is wrong.');
     }
     pcProps_().deleteProperty(PC_FAIL_KEY);
-    return JSON.stringify({ token: pcToken_(rec) });
+    // a temporary passcode from resetPasscode must be replaced straight away
+    return JSON.stringify({ token: pcIssueKey_(), mustChange: !!rec.temp });
   } finally {
     lock.releaseLock();
   }
 }
 
-/** Changes the passcode. Every other device will ask for the new one. */
+/** Changes the passcode. Every other device is signed out and will ask for the new one. */
 function pcChangePasscode(token, newPasscode) {
-  pcAuth_(token);
-  pcValidPasscode_(newPasscode);
-  var rec = pcMakePass_(String(newPasscode));
-  pcProps_().setProperty(PC_PASS_KEY, JSON.stringify(rec));
-  pcProps_().deleteProperty(PC_FAIL_KEY);
-  return JSON.stringify({ token: pcToken_(rec) });
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    pcAuth_(token);
+    pcValidPasscode_(newPasscode);
+    var rec = pcMakePass_(String(newPasscode));
+    pcProps_().setProperty(PC_PASS_KEY, JSON.stringify(rec));
+    pcProps_().deleteProperty(PC_FAIL_KEY);
+    pcProps_().deleteProperty(PC_KEYS_KEY);
+    return JSON.stringify({ token: pcIssueKey_() });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Signs this device out: its key stops working everywhere. */
+function pcLockDevice(token) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var h = pcSha_('key|' + String(token || ''));
+    pcSaveKeys_(pcKeys_().filter(function (k) { return k.h !== h; }));
+    return JSON.stringify({ ok: true });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**
  * Forgot your passcode? Run this from the Apps Script editor: pick
- * resetPasscode next to ▷ Run, click Run. Then open the app and choose a new
- * one. Only works for you (the owner); visitors to the app can't use it.
+ * resetPasscode next to ▷ Run, click Run. The log shows a temporary passcode;
+ * type it into the app, which then asks you to choose a new one. Every device
+ * is signed out. Only works for you (the owner); visitors to the app can't use
+ * it, and the app is never left without a passcode.
  */
 function resetPasscode() {
   var active = '', owner = '';
@@ -127,10 +157,15 @@ function resetPasscode() {
     owner = Session.getEffectiveUser().getEmail();
   } catch (e) { /* not available */ }
   if (!active || active !== owner) throw new Error('Only the owner can reset the passcode, from the Apps Script editor.');
-  pcProps_().deleteProperty(PC_PASS_KEY);
+  var temp = Utilities.getUuid().replace(/-/g, '').slice(0, 10);
+  var rec = pcMakePass_(temp);
+  rec.temp = true;
+  pcProps_().setProperty(PC_PASS_KEY, JSON.stringify(rec));
   pcProps_().deleteProperty(PC_FAIL_KEY);
-  console.log('Passcode cleared. Open the app and choose a new one.');
-  return 'Passcode cleared. Open the app and choose a new one.';
+  pcProps_().deleteProperty(PC_KEYS_KEY);
+  var msg = 'Your temporary passcode is: ' + temp + '   Type it into the app, then choose a new one.';
+  console.log(msg);
+  return msg;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -354,15 +389,36 @@ function pcMakePass_(passcode) {
   return { salt: salt, hash: pcHashPass_(salt, passcode) };
 }
 
-/** The key a device keeps after unlocking. It changes when the passcode changes. */
-function pcToken_(rec) {
-  return pcSha_('device-key|' + rec.salt + '|' + rec.hash);
+/* Each unlocked device gets its own random key. Only a hash of each key is kept,
+   so the list can't be used to get in. Changing the passcode clears the list. */
+function pcKeys_() {
+  try {
+    var list = JSON.parse(pcProps_().getProperty(PC_KEYS_KEY) || '[]');
+    return Array.isArray(list) ? list : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function pcSaveKeys_(list) {
+  pcProps_().setProperty(PC_KEYS_KEY, JSON.stringify(list.slice(-PC_MAX_KEYS)));
+}
+
+function pcIssueKey_() {
+  var key = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+  var list = pcKeys_();
+  list.push({ h: pcSha_('key|' + key), at: Date.now() });
+  pcSaveKeys_(list);
+  return key;
 }
 
 function pcAuth_(token) {
   var rec = pcPass_();
   if (!rec) throw new Error('PC_AUTH_SETUP: Choose a passcode first.');
-  if (!token || String(token) !== pcToken_(rec)) throw new Error('PC_AUTH: This device needs your passcode.');
+  if (typeof token !== 'string' || token.length < 20 || token.length > 200) throw new Error('PC_AUTH: This device needs your passcode.');
+  var h = pcSha_('key|' + token);
+  var ok = pcKeys_().some(function (k) { return k.h === h; });
+  if (!ok) throw new Error('PC_AUTH: This device needs your passcode.');
 }
 
 function pcCheck_() {
@@ -578,10 +634,10 @@ function pcMsg_(e) {
 var PC_LOADER_HTML = [
   "<!doctype html>",
   "<!-- PHANTOM CALENDAR loader. A small stand-in for Index.html: it downloads the full app",
-  "     (apps-script/Index.html) from this GitHub repo each time it opens, so it picks up",
-  "     fixes on its own. If the branch is gone it tries main, then a fixed commit, then the",
-  "     copy saved in this browser from last time. Use either this file or the full",
-  "     Index.html as the \"Index\" file in Apps Script, not both. -->",
+  "     (apps-script/Index.html) from this GitHub repo at one exact commit, and runs it only if",
+  "     its SHA-256 fingerprint matches the one below, so nobody can swap in other code. It",
+  "     keeps a checked copy for when GitHub can't be reached. tools/pin.mjs sets PIN and",
+  "     FINGERPRINT. Use either this file or the full Index.html as \"Index\", not both. -->",
   "<html lang=\"en\">",
   "<head>",
   "<meta charset=\"utf-8\">",
@@ -622,36 +678,50 @@ var PC_LOADER_HTML = [
   "</svg></div><b>TAKE YOUR TIME</b><span id=\"pclMsg\">Loading Phantom Calendar…</span></div>",
   "<script>",
   "(function () {",
-  "  var BASE = 'https://raw.githubusercontent.com/MAggiSupporter/Maggi/';",
+  "  var PIN = '0000000000000000000000000000000000000000';",
+  "  var FINGERPRINT = '0000000000000000000000000000000000000000000000000000000000000000';",
   "  var PATH = '/phantom-calendar/apps-script/Index.html';",
   "  var SOURCES = [",
-  "    BASE + 'claude/epic-thompson-258mz9' + PATH,",
-  "    BASE + 'main' + PATH,",
-  "    BASE + '7fb93a83a8d1a81a4d160296a8738e1375f007c6' + PATH",
+  "    'https://raw.githubusercontent.com/MAggiSupporter/Maggi/' + PIN + PATH,",
+  "    'https://cdn.jsdelivr.net/gh/MAggiSupporter/Maggi@' + PIN + PATH",
   "  ];",
-  "  var CACHE_KEY = 'phantom-calendar-app-copy';",
+  "  var CACHE_KEY = 'phantom-calendar-app-checked';",
   "",
   "  function say(text) { var el = document.getElementById('pclMsg'); if (el) el.textContent = text; }",
-  "  function looksRight(html) {",
-  "    return typeof html === 'string' && html.indexOf('PHANTOM CALENDAR') !== -1 && html.indexOf('pcBootstrap') !== -1;",
+  "  function hex(buf) {",
+  "    return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');",
   "  }",
-  "  function savedCopy() {",
-  "    try { return localStorage.getItem(CACHE_KEY); } catch (e) { return null; }",
+  "  function matches(bytes) {",
+  "    if (!(window.crypto && crypto.subtle)) return Promise.resolve(false);",
+  "    return crypto.subtle.digest('SHA-256', bytes).then(function (d) { return hex(d) === FINGERPRINT; });",
+  "  }",
+  "",
+  "  function fromCache() {",
+  "    var copy = null;",
+  "    try { copy = localStorage.getItem(CACHE_KEY); } catch (e) { copy = null; }",
+  "    if (!copy) return Promise.resolve(false);",
+  "    return matches(new TextEncoder().encode(copy)).then(function (ok) {",
+  "      if (ok) mount(copy);",
+  "      return ok;",
+  "    });",
   "  }",
   "",
   "  function tryNext(i) {",
   "    if (i >= SOURCES.length) {",
-  "      var copy = savedCopy();",
-  "      if (looksRight(copy)) { mount(copy); return; }",
-  "      say('Couldn’t download the app. Check that you’re online, then reload this page.');",
+  "      fromCache().then(function (ok) {",
+  "        if (!ok) say('Couldn\\u2019t download the app. Check that you\\u2019re online, then reload this page.');",
+  "      });",
   "      return;",
   "    }",
   "    fetch(SOURCES[i], { cache: 'no-cache' })",
-  "      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })",
-  "      .then(function (html) {",
-  "        if (!looksRight(html)) throw new Error('unexpected file');",
-  "        try { localStorage.setItem(CACHE_KEY, html); } catch (e) { /* no storage: fine */ }",
-  "        mount(html);",
+  "      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })",
+  "      .then(function (buf) {",
+  "        return matches(buf).then(function (ok) {",
+  "          if (!ok) throw new Error('fingerprint does not match');",
+  "          var html = new TextDecoder().decode(buf);",
+  "          try { localStorage.setItem(CACHE_KEY, html); } catch (e) { /* no storage: fine */ }",
+  "          mount(html);",
+  "        });",
   "      })",
   "      .catch(function () { tryNext(i + 1); });",
   "  }",

@@ -331,6 +331,11 @@ function isoAt(day, h, m) { const d = new Date(day); d.setUTCHours(h, m || 0, 0,
   check(!refused(() => gas.pcSync(token, JSON.stringify({ calendarIds: ['me@example.com'], windows: [] }))), 'the right key works');
   check(/already set/.test((() => { try { gas.pcSetPasscode('takeover1'); } catch (e) { return e.message; } return ''; })()), 'nobody can set a new passcode once one exists');
   check(JSON.stringify(scriptProps).indexOf(PASS) === -1, 'the passcode itself is never stored, only a salted hash');
+  const keyA = JSON.parse(gas.pcUnlock(PASS)).token, keyB = JSON.parse(gas.pcUnlock(PASS)).token;
+  check(keyA !== keyB && !refused(() => gas.pcCalendars(keyA)) && !refused(() => gas.pcCalendars(keyB)), 'each device gets its own key');
+  check(JSON.stringify(scriptProps).indexOf(keyA) === -1, 'device keys are stored only as hashes');
+  gas.pcLockDevice(keyA);
+  check(refused(() => gas.pcCalendars(keyA)) && !refused(() => gas.pcCalendars(keyB)), '"Lock this device" cancels that key on the server, others keep working');
 
   // a second device: wrong passcode, then the right one
   const dev2 = await openApp(browser, gas, null, names);
@@ -364,14 +369,58 @@ function isoAt(day, h, m) { const d = new Date(day); d.setUTCHours(h, m || 0, 0,
   check(JSON.parse(gas.pcAuthState()).lockedForMs > 14 * 60000, 'the app can show how long to wait');
 
   // forgot it: only the owner, from the editor, can reset
+  scriptProps.phantomCalendarFailures && delete scriptProps.phantomCalendarFailures;
   session.active = '';
   check(/Only the owner/.test((() => { try { gas.resetPasscode(); } catch (e) { return e.message; } return ''; })()), 'visitors can\u2019t reset the passcode');
   session.active = 'someone@else.com';
   check(/Only the owner/.test((() => { try { gas.resetPasscode(); } catch (e) { return e.message; } return ''; })()), 'other Google accounts can\u2019t either');
   session.active = 'me@example.com';
-  gas.resetPasscode();
-  check(JSON.parse(gas.pcAuthState()).hasPasscode === false && JSON.parse(gas.pcAuthState()).lockedForMs === 0, 'the owner can reset it from the editor');
-  check(!(await (async () => { const d = await openApp(browser, gas, null, names); const r = await passGate(d.page, 'fresh-start-1'); await d.ctx.close(); return r !== 'setup'; })()), 'after a reset the app asks to choose a new one');
+  const stillHere = JSON.parse(gas.pcUnlock('new-heist-99'));
+  check(typeof stillHere.token === 'string' && !refused(() => gas.pcCalendars(stillHere.token)), 'a device is unlocked before the reset');
+  const resetMsg = gas.resetPasscode();
+  const temp = (resetMsg.match(/passcode is: (\w+)/) || [])[1];
+  check(temp && JSON.parse(gas.pcAuthState()).hasPasscode === true && JSON.parse(gas.pcAuthState()).lockedForMs === 0, 'the owner can reset it from the editor, and gets a temporary passcode');
+  check(/already set/.test((() => { try { gas.pcSetPasscode('grab-it-now'); } catch (e) { return e.message; } return ''; })()), 'after a reset nobody can race in and choose the passcode');
+  check(refused(() => gas.pcCalendars(stillHere.token)), 'a reset signs every device out');
+  const d3 = await openApp(browser, gas, null, names);
+  await d3.page.waitForSelector('#gatePass');
+  await d3.page.fill('#gatePass', temp);
+  await d3.page.click('.gate-form button[type="submit"]');
+  await d3.page.waitForSelector('#gatePass2', { timeout: 10000 });
+  check(/temporary/i.test(await d3.page.textContent('.gate')), 'the temporary passcode works once, then asks for a new one');
+  await d3.page.fill('#gatePass', 'my-own-again-1');
+  await d3.page.fill('#gatePass2', 'my-own-again-1');
+  await d3.page.click('.gate-form button[type="submit"]');
+  await d3.page.waitForSelector('#app:not([hidden])', { timeout: 15000 });
+  check(/temp/.test(gas.pcAuthState()) === false && /PC_AUTH/.test((() => { try { gas.pcUnlock(temp); } catch (e) { return e.message; } return ''; })()), 'the temporary passcode stops working once replaced');
+  await d3.ctx.close();
+  delete scriptProps.phantomCalendarFailures;
+
+  // setup when a passcode already exists says so plainly
+  const d4 = await openApp(browser, gas, null, names);
+  await d4.page.waitForSelector('#gatePass');
+  await d4.page.evaluate(() => { passcodeGate('setup').then(() => {}); });
+  await d4.page.waitForSelector('#gatePass2');
+  await d4.page.fill('#gatePass2', 'whatever-123');
+  const gates = await d4.page.$$('#gatePass');
+  await gates[gates.length - 1].fill('whatever-123');
+  await d4.page.click('.gate:last-of-type .gate-form button[type="submit"]');
+  await d4.page.waitForSelector('.gate-warn', { timeout: 10000 });
+  check(/already chosen/.test(await d4.page.textContent('.gate-warn')), 'if a passcode was already chosen, the app says so (in case it wasn\u2019t you)');
+  await d4.ctx.close();
+
+  // an "Index" file from before the passcode lock is ignored
+  {
+    const vm = require('node:vm');
+    const fs = require('node:fs');
+    let served = null;
+    const out = (content) => ({ getContent: () => content, setFaviconUrl() { return this; }, setTitle() { return this; }, addMetaTag() { return this; }, setXFrameOptionsMode() { return this; }, _c: content });
+    const ctx2 = { HtmlService: { createHtmlOutputFromFile: () => out('<html>old app with pcBootstrap</html>'), createHtmlOutput: (c) => { served = c; return out(c); }, XFrameOptionsMode: { DEFAULT: 1 } } };
+    vm.createContext(ctx2);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8'), ctx2);
+    ctx2.doGet();
+    check(served && served.includes('FINGERPRINT'), 'an outdated "Index" file is skipped in favour of the built-in loader');
+  }
 
   // people who still have the older Code.gs keep working
   const oldSource = execFileSync('git', ['show', '1b5eaf7d84a6881126ab6dfdb8f080dca772ebd0:phantom-calendar/apps-script/Code.gs'], { cwd: path.join(__dirname, '..') }).toString();
@@ -379,6 +428,7 @@ function isoAt(day, h, m) { const d = new Date(day); d.setUTCHours(h, m || 0, 0,
   legacy.fake.add('me@example.com', { summary: 'Old server event', start: { dateTime: isoAt(today, 11), timeZone: 'UTC' }, end: { dateTime: isoAt(today, 12), timeZone: 'UTC' } });
   const old = await openApp(browser, legacy.gas, null, legacy.names);
   check(await passGate(old.page, PASS) === 'none' && /Old server event/.test(await old.page.textContent('#view')), 'with the older Code.gs it still works (no passcode until you update)');
+  check(await old.page.isVisible('#legacyBanner') && /no passcode lock/.test(await old.page.textContent('#legacyBanner')), '…and shows a red warning that it has no passcode lock');
   await old.ctx.close();
 
   await browser.close();
