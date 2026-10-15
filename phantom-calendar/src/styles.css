@@ -1017,6 +1017,10 @@ kbd { min-width: 28px; padding: 3px 7px 1px; text-align: center; font: 16px/1 va
 .fatal-box code { background: var(--bg-3); padding: 1px 6px; }
 .fatal-msg { padding: 10px 12px; background: var(--bg-3); border-left: 6px solid var(--accent); font: 600 14px/1.4 ui-monospace, monospace; word-break: break-word; }
 .fatal-actions { display: flex; gap: 14px; margin-top: 22px; flex-wrap: wrap; }
+.gate-form { display: grid; gap: 10px; max-width: 380px; margin-top: 18px; }
+.gate-form .fatal-actions { margin-top: 8px; }
+.gate-form .f-input { background: var(--bg-3); color: var(--paper); font-size: 18px; }
+.gate-help { margin-top: 26px !important; font-size: 14px !important; color: var(--muted); }
 
 /* ---------------- motion settings ---------------- */
 [data-motion='off'] *, [data-motion='off'] *::before, [data-motion='off'] *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }

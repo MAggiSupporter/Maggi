@@ -65,8 +65,13 @@ use the app on your phone too.
 
 1. Click the blue **Deploy** button (top right), then **New deployment**.
 2. Click the ⚙️ gear next to **Select type** and choose **Web app**.
-3. Set **Execute as** to **Me**, and **Who has access** to **Only myself**.
+3. Set **Execute as** to **Me**, and **Who has access** to **Anyone**.
 4. Click **Deploy**.
+
+"Anyone" sounds scary, but it only means Google won't check *which* Google account your
+browser is using (that check breaks for anyone signed in to more than one account). Your
+calendar is protected by **your own passcode** instead, which you choose in Step 6. Nobody
+gets in without the secret link **and** the passcode.
 
 ### Step 5: Say yes to Google
 
@@ -80,13 +85,30 @@ use the app on your phone too.
    permanently delete all the calendars…"). That's Google's standard sentence for *any*
    calendar app. This one only creates, changes and deletes the events you tell it to.
 
-### Step 6: Open your app 🎉
+### Step 6: Open your app and choose a passcode 🎉
 
 1. Google shows a **Web app** link ending in `/exec`. Click **Copy**, paste it into your
    browser's address bar and press Enter.
-2. **Bookmark it.** That link *is* your app, and only you can open it.
-3. **On your phone:** open the same link in Chrome or Safari, signed in to the same Google
-   account, and choose **Add to Home Screen**.
+2. The app asks you to **choose a passcode** (at least 6 characters). Type it twice and click
+   **LOCK IT IN**. Each new device asks for it once, then remembers.
+3. Keep the link private, like a house key.
+
+### Step 7: Make it a real app icon
+
+- **Chrome (Windows or Mac):** with the app open, click **⋮** (top right) → **Cast, save, and
+  share** → **Install page as app** (on older Chrome: **Create shortcut**, tick **Open as
+  window**). It gets its own icon on your desktop or taskbar.
+- **Edge:** **⋯** → **Apps** → **Install this site as an app**.
+- **Safari on a Mac:** **File** → **Add to Dock**.
+- **iPhone (Safari):** **Share** → **Add to Home Screen**. **Android (Chrome):** **⋮** → **Add
+  to Home screen**. Open it once and enter your passcode.
+
+> **Already set up with "Only myself" and it only opens in a private window?** Switch to the
+> click-to-open version: in the window where Apps Script works, open your project, paste the
+> new code from Step 1 over the old (Ctrl+A, Ctrl+V, Ctrl+S), then do Step 4 again with
+> **Who has access: Anyone**. Use the **new** `/exec` link it gives you, in your normal
+> browser, and choose a passcode. Paste the code *before* switching to Anyone, so your
+> calendar is never open without the passcode.
 
 > **Want everything stored inside your account?** By default the app's screens download from
 > this GitHub page each time you open it, which is how you get fixes automatically. To keep a
@@ -155,6 +177,13 @@ it. Only if `Code.gs` itself changes (it's rare, and the README will say so):
 
 ## If something goes wrong
 
+- **Forgot your passcode.** Open your project at script.google.com, pick **resetPasscode**
+  in the list next to **▷ Run** at the top, and click **Run**. Then open the app and choose a
+  new one. (Only you can do this: it doesn't work from the app link.)
+- **"Too many wrong tries."** After 8 wrong passcodes the app pauses for 15 minutes.
+- **Think someone else has your link?** In the app, open the Hideout (⚙️) and **change the
+  passcode**. Every device then has to enter the new one. You can also make a new deployment
+  (Step 4) to get a new link, and delete the old one in **Deploy → Manage deployments**.
 - **A screen says "ONE MORE STEP".** You skipped Step 3. Do it, then click **Deploy → Manage
   deployments**, the ✏️ pencil, **Version: New version**, **Deploy**, and reload the app.
 - **A screen says "SECURITY ALERT" and mentions permission.** A box was left unticked in
@@ -163,7 +192,8 @@ it. Only if `Code.gs` itself changes (it's rare, and the README will say so):
 - **"Sorry, unable to open the file at present"** (or "…at this time"), or a blank page.
   You're probably signed in to **several Google accounts** at once (a known Google problem).
   Open the link in a private/incognito window (Chrome: **Ctrl+Shift+N**, Mac: **⌘+Shift+N**)
-  and sign in only to the account you used in Step 2. Also check you copied the **Web app**
+  and sign in only to the account you used in Step 2. The lasting fix is **Who has access:
+  Anyone** (Step 4), which stops Google checking accounts. Also check you copied the **Web app**
   link: it starts with `https://script.google.com/macros/s/` and ends with `/exec`. You can
   copy it again from **Deploy → Manage deployments**.
 - **Clicking "Authorize access" shows "Sorry, unable to open the file" instead of the
@@ -193,7 +223,8 @@ it. Only if `Code.gs` itself changes (it's rare, and the README will say so):
 
 ## Privacy
 
-Everything stays between you and Google. The code that touches your calendar is
+Everything stays between you and Google. Your calendar is locked behind your passcode; the
+passcode itself is never stored, only a salted hash of it in your script's settings. The code that touches your calendar is
 `Code.gs`, which you can read, and it runs inside your Google account. The app uses no
 server of its own and has no tracking. Besides Google, it contacts GitHub (to download its
 screens, unless you added your own `Index` file), Google Fonts (for the lettering), and,

@@ -164,22 +164,39 @@ function loadCodeGs(opts) {
   opts = opts || {};
   const fake = makeCalendar();
   const props = {};
+  const scriptProps = {};
+  const session = { active: 'me@example.com', effective: 'me@example.com' };
+  const store = (bag) => ({
+    getProperty: (k) => (k in bag ? bag[k] : null),
+    setProperty: (k, v) => { bag[k] = String(v); },
+    deleteProperty: (k) => { delete bag[k]; }
+  });
   const sandbox = {
     Calendar: opts.noService ? undefined : fake.Calendar,
-    HtmlService: { createHtmlOutputFromFile() { return this; }, setTitle() { return this; }, addMetaTag() { return this; }, setXFrameOptionsMode() { return this; }, XFrameOptionsMode: { DEFAULT: 'DEFAULT' } },
-    PropertiesService: { getUserProperties: () => ({ getProperty: (k) => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); } }) },
-    Session: { getActiveUser: () => ({ getEmail: () => 'me@example.com' }), getScriptTimeZone: () => 'UTC' },
-    Utilities: {
-      DigestAlgorithm: { MD5: 'md5' }, Charset: { UTF_8: 'utf8' },
-      computeDigest: (alg, text) => Array.from(crypto.createHash('md5').update(text, 'utf8').digest()),
-      base64Encode: (bytes) => Buffer.from(bytes).toString('base64')
+    HtmlService: { createHtmlOutputFromFile() { return this; }, createHtmlOutput() { return this; }, setTitle() { return this; }, addMetaTag() { return this; }, setXFrameOptionsMode() { return this; }, XFrameOptionsMode: { DEFAULT: 'DEFAULT' } },
+    PropertiesService: { getUserProperties: () => store(props), getScriptProperties: () => store(scriptProps) },
+    LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+    Session: {
+      getActiveUser: () => ({ getEmail: () => session.active }),
+      getEffectiveUser: () => ({ getEmail: () => session.effective }),
+      getScriptTimeZone: () => 'UTC'
     },
-    JSON, Math, Date, String, Error, Object, Array
+    Utilities: {
+      DigestAlgorithm: { MD5: 'md5', SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
+      computeDigest: (alg, text) => Array.from(crypto.createHash(alg).update(text, 'utf8').digest()),
+      base64Encode: (bytes) => Buffer.from(bytes).toString('base64'),
+      getUuid: () => crypto.randomUUID()
+    },
+    console: { log() {} },
+    JSON, Math, Date, String, Error, Object, Array, Number
   };
   if (opts.noService) delete sandbox.Calendar;
   vm.createContext(sandbox);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8'), sandbox, { filename: 'Code.gs' });
-  return { gas: sandbox, fake, props };
+  const source = opts.source || fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8');
+  vm.runInContext(source, sandbox, { filename: 'Code.gs' });
+  // what google.script.run offers the page: every top-level function not ending in "_"
+  const names = Object.keys(sandbox).filter((k) => typeof sandbox[k] === 'function' && /^[a-z]\w*$/i.test(k) && !k.endsWith('_') && !['Error', 'Object', 'Array', 'String', 'Number', 'Date', 'JSON', 'Math'].includes(k));
+  return { gas: sandbox, fake, props, scriptProps, session, names };
 }
 
 module.exports = { loadCodeGs, merge };

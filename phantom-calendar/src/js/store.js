@@ -326,8 +326,12 @@ async function syncNow() {
     App.syncErrors = res.errors && res.errors.length ? res.errors : null;
     if (changed) requestRender();
   } catch (err) {
-    if (!App.offline) toast("Couldn't reach Google Calendar. Retrying… (" + errMsg(err) + ')', { kind: 'error' });
-    App.offline = true;
+    if (App.backend.kind === 'google' && isLockedOut(err)) {
+      // the passcode screen is showing; syncing resumes once it's entered
+    } else {
+      if (!App.offline) toast("Couldn't reach Google Calendar. Retrying… (" + errMsg(err) + ')', { kind: 'error' });
+      App.offline = true;
+    }
   } finally {
     App.syncing = false;
     updateSyncChip();

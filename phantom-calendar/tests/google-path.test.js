@@ -3,7 +3,9 @@
 // Calendar API (tests/fake-google.js). Run: node tests/google-path.test.js
 const path = require('node:path');
 const { chromium } = require('playwright');
+const { execFileSync } = require('node:child_process');
 const { loadCodeGs } = require('./fake-google');
+const { installBridge, passGate } = require('./gas-bridge');
 
 const PAGE = 'file://' + path.join(__dirname, '..', 'apps-script', 'Index.html');
 let failures = 0;
@@ -12,41 +14,13 @@ function check(cond, msg) {
   else { failures++; console.log('  FAIL ' + msg); }
 }
 
-const SHIM = () => {
-  // google.script.run, forwarding each call to Node
-  function runner() {
-    let ok = () => {}, fail = () => {};
-    const r = new Proxy({}, {
-      get(_, name) {
-        if (name === 'withSuccessHandler') return (f) => { ok = f; return r; };
-        if (name === 'withFailureHandler') return (f) => { fail = f; return r; };
-        return (...args) => {
-          window.__gas(String(name), JSON.stringify(args)).then((res) => {
-            const o = JSON.parse(res);
-            if ('error' in o) fail(new Error(o.error)); else ok(o.value);
-          });
-        };
-      }
-    });
-    return r;
-  }
-  window.google = { script: { get run() { return runner(); } } };
-};
+const PASS = 'heist-1234';
 
-async function openApp(browser, gas, log) {
+async function openApp(browser, gas, log, names) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, ignoreHTTPSErrors: true });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => { failures++; console.log('  PAGE ERROR ' + e.message); });
-  await page.exposeFunction('__gas', (name, argsJson) => {
-    try {
-      const value = gas[name](...JSON.parse(argsJson));
-      if (log) log.push([name, value]);
-      return JSON.stringify({ value });
-    } catch (e) {
-      return JSON.stringify({ error: String(e.message || e) });
-    }
-  });
-  await page.addInitScript(SHIM);
+  await installBridge(ctx, gas, names, log);
   await page.goto(PAGE);
   return { ctx, page };
 }
@@ -60,8 +34,8 @@ function isoAt(day, h, m) { const d = new Date(day); d.setUTCHours(h, m || 0, 0,
   /* ---------- 1. missing Calendar service → friendly setup screen ---------- */
   console.log('Missing "Google Calendar API" service:');
   {
-    const { gas } = loadCodeGs({ noService: true });
-    const { ctx, page } = await openApp(browser, gas);
+    const { gas, names } = loadCodeGs({ noService: true });
+    const { ctx, page } = await openApp(browser, gas, null, names);
     await page.waitForSelector('.fatal', { timeout: 10000 });
     const text = await page.textContent('.fatal');
     check(/Google Calendar API/.test(text) && /New version/.test(text), 'shows the "turn on the service" steps');
@@ -73,7 +47,7 @@ function isoAt(day, h, m) { const d = new Date(day); d.setUTCHours(h, m || 0, 0,
 
   /* ---------- 2. the real flow ---------- */
   console.log('Linked to a (fake) Google Calendar:');
-  const { gas, fake, props } = loadCodeGs();
+  const { gas, fake, props, scriptProps, session, names } = loadCodeGs();
   const now = new Date();
   const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const dow = today.getUTCDay();
@@ -89,8 +63,8 @@ function isoAt(day, h, m) { const d = new Date(day); d.setUTCHours(h, m || 0, 0,
     fake.add('work@group', { summary: 'Standup', start: { dateTime: isoAt(d, 6), timeZone: 'UTC' }, end: { dateTime: isoAt(d, 6, 15), timeZone: 'UTC' } });
   }
   const log = [];
-  const { ctx, page } = await openApp(browser, gas, log);
-  await page.waitForSelector('#app:not([hidden])', { timeout: 15000 });
+  const { ctx, page } = await openApp(browser, gas, log, names);
+  check(await passGate(page, PASS) === 'setup', 'first visit asks you to choose a passcode');
   await page.waitForTimeout(600);
   const html = await page.textContent('#view');
   check(/Team sync/.test(html) && /Client call/.test(html) && /Founders Day/.test(html), 'shows events from all three calendars');
@@ -335,13 +309,78 @@ function isoAt(day, h, m) { const d = new Date(day); d.setUTCHours(h, m || 0, 0,
 
   // broken saved settings never lock you out
   props.phantomCalendarSettings = '{"theme":"skull","calVis":{"a';
-  const boot = JSON.parse(gas.pcBootstrap());
+  const tk = JSON.parse(gas.pcUnlock(PASS)).token;
+  const boot = JSON.parse(gas.pcBootstrap(tk));
   check(boot.settings === null && boot.calendars.length > 0, 'damaged saved settings are ignored instead of blocking the app');
   let tooBig = false;
-  try { gas.pcSaveSettings(JSON.stringify({ x: 'y'.repeat(9000) })); } catch (e) { tooBig = true; }
+  try { gas.pcSaveSettings(tk, JSON.stringify({ x: 'y'.repeat(9000) })); } catch (e) { tooBig = /too large/.test(e.message); }
   check(tooBig, 'oversized settings are refused rather than saved cut off');
 
   await ctx.close();
+
+  /* ---------- passcode ---------- */
+  console.log('Passcode lock:');
+  const token = JSON.parse(gas.pcUnlock(PASS)).token;
+  const refused = (fn) => { try { fn(); return false; } catch (e) { return /PC_AUTH/.test(e.message); } };
+  check(refused(() => gas.pcSync('', JSON.stringify({ calendarIds: ['me@example.com'], windows: [] }))), 'calendar functions refuse calls with no key');
+  check(refused(() => gas.pcBootstrap('made-up-key')) && refused(() => gas.pcCreateEvent('x', 'me@example.com', '{}')) &&
+    refused(() => gas.pcDeleteEvent('x', 'me@example.com', 'ev1')) && refused(() => gas.pcUpdateEvent('x', 'me@example.com', 'ev1', '{}', '{}')) &&
+    refused(() => gas.pcSearch('x', '{}')) && refused(() => gas.pcGetEvent('x', 'me@example.com', 'ev1')) &&
+    refused(() => gas.pcCalendars('x')) && refused(() => gas.pcSaveSettings('x', '{}')) && refused(() => gas.pcChangePasscode('x', 'newpass1')),
+  'every calendar function refuses a wrong key');
+  check(!refused(() => gas.pcSync(token, JSON.stringify({ calendarIds: ['me@example.com'], windows: [] }))), 'the right key works');
+  check(/already set/.test((() => { try { gas.pcSetPasscode('takeover1'); } catch (e) { return e.message; } return ''; })()), 'nobody can set a new passcode once one exists');
+  check(JSON.stringify(scriptProps).indexOf(PASS) === -1, 'the passcode itself is never stored, only a salted hash');
+
+  // a second device: wrong passcode, then the right one
+  const dev2 = await openApp(browser, gas, null, names);
+  await dev2.page.waitForSelector('#gatePass');
+  check(!(await dev2.page.$('#gatePass2')), 'a new device asks for the existing passcode');
+  await dev2.page.fill('#gatePass', 'not-it-123');
+  await dev2.page.click('.gate-form button[type="submit"]');
+  await dev2.page.waitForSelector('.gate .f-err:not([hidden])');
+  check(/wrong/i.test(await dev2.page.textContent('.gate .f-err')), 'a wrong passcode is refused');
+  check(await passGate(dev2.page, PASS) === 'unlock', 'the right passcode unlocks it');
+  await dev2.page.reload();
+  check(await passGate(dev2.page, PASS) === 'none', 'next time it opens straight away (device remembered)');
+
+  // the passcode changes on another device: this one asks again, then carries on
+  const newToken = JSON.parse(gas.pcChangePasscode(token, 'new-heist-99')).token;
+  check(refused(() => gas.pcSync(token, JSON.stringify({ calendarIds: [], windows: [] }))) && !refused(() => gas.pcSync(newToken, JSON.stringify({ calendarIds: [], windows: [] }))), 'changing the passcode retires old keys');
+  await dev2.page.keyboard.press('r');
+  await dev2.page.waitForSelector('#gatePass', { timeout: 10000 });
+  await dev2.page.fill('#gatePass', 'new-heist-99');
+  await dev2.page.click('.gate-form button[type="submit"]');
+  await dev2.page.waitForSelector('.gate', { state: 'detached', timeout: 10000 });
+  await dev2.page.waitForTimeout(800);
+  check(/Team sync|Client call/.test(await dev2.page.textContent('#view')), 'an open app asks for the new passcode and keeps going');
+  await dev2.ctx.close();
+
+  // too many wrong tries pause unlocking
+  let msg = '';
+  for (let i = 0; i < 8; i++) { try { gas.pcUnlock('guess-' + i); } catch (e) { msg = e.message; } }
+  check(/PC_LOCKED/.test(msg), '8 wrong tries lock it for 15 minutes');
+  check(/PC_LOCKED/.test((() => { try { gas.pcUnlock('new-heist-99'); } catch (e) { return e.message; } return ''; })()), 'even the right passcode waits out the lock');
+  check(JSON.parse(gas.pcAuthState()).lockedForMs > 14 * 60000, 'the app can show how long to wait');
+
+  // forgot it: only the owner, from the editor, can reset
+  session.active = '';
+  check(/Only the owner/.test((() => { try { gas.resetPasscode(); } catch (e) { return e.message; } return ''; })()), 'visitors can\u2019t reset the passcode');
+  session.active = 'someone@else.com';
+  check(/Only the owner/.test((() => { try { gas.resetPasscode(); } catch (e) { return e.message; } return ''; })()), 'other Google accounts can\u2019t either');
+  session.active = 'me@example.com';
+  gas.resetPasscode();
+  check(JSON.parse(gas.pcAuthState()).hasPasscode === false && JSON.parse(gas.pcAuthState()).lockedForMs === 0, 'the owner can reset it from the editor');
+  check(!(await (async () => { const d = await openApp(browser, gas, null, names); const r = await passGate(d.page, 'fresh-start-1'); await d.ctx.close(); return r !== 'setup'; })()), 'after a reset the app asks to choose a new one');
+
+  // people who still have the older Code.gs keep working
+  const oldSource = execFileSync('git', ['show', '1b5eaf7d84a6881126ab6dfdb8f080dca772ebd0:phantom-calendar/apps-script/Code.gs'], { cwd: path.join(__dirname, '..') }).toString();
+  const legacy = loadCodeGs({ source: oldSource });
+  legacy.fake.add('me@example.com', { summary: 'Old server event', start: { dateTime: isoAt(today, 11), timeZone: 'UTC' }, end: { dateTime: isoAt(today, 12), timeZone: 'UTC' } });
+  const old = await openApp(browser, legacy.gas, null, legacy.names);
+  check(await passGate(old.page, PASS) === 'none' && /Old server event/.test(await old.page.textContent('#view')), 'with the older Code.gs it still works (no passcode until you update)');
+  await old.ctx.close();
+
   await browser.close();
   console.log(failures ? '\n' + failures + ' FAILED' : '\nALL PASSED');
   process.exit(failures ? 1 : 0);

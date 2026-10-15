@@ -271,7 +271,8 @@ async function boot() {
   bootText('TAKE YOUR TIME');
   App.backend = pickBackend();
   try {
-    const b = await App.backend.bootstrap();
+    if (App.backend.kind === 'google') await ensureUnlocked();
+    const b = await bootstrapWithKey();
     App.user = b.user || '';
     if (b.settings && App.backend.kind === 'google') {
       App.settings = Object.assign({}, DEFAULT_SETTINGS, b.settings);
@@ -288,6 +289,108 @@ async function boot() {
   } catch (err) {
     showFatal(err);
   }
+}
+
+/* ---------------- passcode ---------------- */
+async function ensureUnlocked() {
+  App.backend.loadKey();
+  const st = await App.backend.authState();
+  if (st.legacy) return;
+  if (!st.service) throw new Error('PC_NO_SERVICE: The "Google Calendar API" service is not turned on for this script.');
+  if (!st.hasPasscode) {
+    App.backend.saveKey(null);
+    await passcodeGate('setup');
+  } else if (!App.backend.token) {
+    await passcodeGate('unlock', st);
+  }
+}
+
+async function bootstrapWithKey() {
+  try {
+    return await App.backend.bootstrap();
+  } catch (err) {
+    if (App.backend.kind !== 'google' || !isLockedOut(err)) throw err;
+    App.backend.saveKey(null);
+    await passcodeGate(/PC_AUTH_SETUP/.test(err.message) ? 'setup' : 'unlock');
+    return App.backend.bootstrap();
+  }
+}
+
+let gateOpen = false;
+/** The key stopped working while the app was open: ask for the passcode again. */
+function onDeviceLocked() {
+  if (gateOpen || !App.ready) return;
+  gateOpen = true;
+  App.backend.saveKey(null);
+  closeAllLayers();
+  passcodeGate('unlock').then(() => {
+    gateOpen = false;
+    syncNow();
+    refreshCalendars();
+  });
+}
+
+/** The passcode screen. mode 'setup' chooses one, 'unlock' enters it. Resolves once this device has its key. */
+function passcodeGate(mode, info) {
+  return new Promise((resolve) => {
+    $('#boot').classList.add('is-out');
+    const setup = mode === 'setup';
+    const pass = h('input', {
+      class: 'f-input', type: 'password', id: 'gatePass', 'aria-label': setup ? 'New passcode' : 'Passcode',
+      autocomplete: setup ? 'new-password' : 'current-password', placeholder: setup ? 'Choose a passcode' : 'Passcode'
+    });
+    const again = setup ? h('input', { class: 'f-input', type: 'password', id: 'gatePass2', 'aria-label': 'Passcode again', autocomplete: 'new-password', placeholder: 'Type it again' }) : null;
+    const err = h('div', { class: 'f-err', hidden: true, role: 'alert' });
+    const label = setup ? 'LOCK IT IN' : 'UNLOCK';
+    const btn = h('button', { class: 'jag-btn primary', type: 'submit' }, label);
+    const show = (text) => { err.textContent = text; err.hidden = false; Sfx.play('error'); };
+    const node = h('div', { class: 'fatal gate', role: 'dialog', 'aria-label': setup ? 'Choose a passcode' : 'Enter your passcode' });
+    const done = () => {
+      Sfx.play('select');
+      node.remove();
+      if (!App.ready) { $('#boot').hidden = false; $('#boot').classList.remove('is-out'); bootText('BREAKING IN', 'Reading your calendar…'); }
+      resolve();
+    };
+    const form = h('form', {
+      class: 'gate-form',
+      onsubmit: async (e) => {
+        e.preventDefault();
+        const p = pass.value;
+        if (setup) {
+          if (p.length < 6) return show('Use at least 6 characters.');
+          if (p !== again.value) return show('The two passcodes don\u2019t match.');
+        } else if (!p) return show('Type your passcode.');
+        btn.disabled = true;
+        btn.textContent = 'CHECKING…';
+        try {
+          if (setup) await App.backend.setPasscode(p);
+          else await App.backend.unlock(p);
+          done();
+        } catch (er) {
+          const m = String((er && er.message) || er);
+          if (/PC_AUTH_SETUP/.test(m)) { node.remove(); passcodeGate('setup').then(resolve); return; }
+          if (/already set/.test(m)) { node.remove(); passcodeGate('unlock').then(resolve); return; }
+          show(errMsg(er));
+          pass.value = '';
+          pass.focus();
+        } finally {
+          btn.disabled = false;
+          btn.textContent = label;
+        }
+      }
+    }, pass, again, err, h('div', { class: 'fatal-actions' }, btn));
+    const box = h('div', { class: 'fatal-box' },
+      ransom(setup ? 'CHOOSE A PASSCODE' : 'SHOW YOUR CARD', { seed: mode }),
+      setup
+        ? h('p', null, 'Your app link opens in any browser now, whichever Google account is signed in. A passcode keeps your calendar yours: even someone who gets hold of the link can\u2019t get in without it. Use at least 6 characters. Each device asks once, then remembers.')
+        : h('p', null, 'Enter your passcode to unlock this device. It\u2019ll remember, so you only do this once here.'),
+      form,
+      setup ? null : h('p', { class: 'gate-help' }, 'Forgot it? Open your project at script.google.com, pick ', h('b', null, 'resetPasscode'), ' in the list next to ', h('b', null, '▷ Run'), ', click ', h('b', null, 'Run'), ', then reload this page and choose a new one.'));
+    node.append(box);
+    document.body.append(node);
+    if (info && info.lockedForMs) show('Too many wrong tries. Wait ' + Math.ceil(info.lockedForMs / 60000) + ' minutes, then try again.');
+    pass.focus();
+  });
 }
 
 let started = false;

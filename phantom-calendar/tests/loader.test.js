@@ -6,43 +6,21 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright');
 const { loadCodeGs } = require('./fake-google');
+const { installBridge, passGate } = require('./gas-bridge');
 
 const LOADER = 'file://' + path.join(__dirname, '..', 'apps-script', 'loader', 'Index.html');
 const BUNDLE = fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Index.html'), 'utf8');
 let failures = 0;
 const check = (c, m) => { if (c) console.log('  ok  ' + m); else { failures++; console.log('  FAIL ' + m); } };
 
-const SHIM = () => {
-  function runner() {
-    let ok = () => {}, fail = () => {};
-    const r = new Proxy({}, {
-      get(_, name) {
-        if (name === 'withSuccessHandler') return (f) => { ok = f; return r; };
-        if (name === 'withFailureHandler') return (f) => { fail = f; return r; };
-        return (...args) => {
-          window.__gas(String(name), JSON.stringify(args)).then((res) => {
-            const o = JSON.parse(res);
-            if ('error' in o) fail(new Error(o.error)); else ok(o.value);
-          });
-        };
-      }
-    });
-    return r;
-  }
-  window.google = { script: { get run() { return runner(); } } };
-};
-
 (async () => {
   const proxy = process.env.HTTPS_PROXY ? { server: process.env.HTTPS_PROXY } : undefined;
   const browser = await chromium.launch({ proxy });
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ignoreHTTPSErrors: true });
-  const { gas, fake } = loadCodeGs();
+  const { gas, fake, names } = loadCodeGs();
   const now = new Date();
   fake.add('me@example.com', { summary: 'Loader test event', start: { dateTime: new Date(now.getTime() + 3600e3).toISOString(), timeZone: 'UTC' }, end: { dateTime: new Date(now.getTime() + 7200e3).toISOString(), timeZone: 'UTC' } });
-  await ctx.exposeFunction('__gas', (name, argsJson) => {
-    try { return JSON.stringify({ value: gas[name](...JSON.parse(argsJson)) }); } catch (e) { return JSON.stringify({ error: String(e.message || e) }); }
-  });
-  await ctx.addInitScript(SHIM);
+  await installBridge(ctx, gas, names);
 
   let mode = 'branch';
   const hits = [];
@@ -65,7 +43,7 @@ const SHIM = () => {
 
   console.log('Loader:');
   let { page, errs } = await open('branch');
-  await page.waitForSelector('#app:not([hidden])', { timeout: 15000 });
+  check(await passGate(page, 'loader-pass-1') === 'setup', 'asks for a passcode the first time');
   await page.waitForTimeout(500);
   check(/Loader test event/.test(await page.textContent('#view')), 'downloads the app from the branch and shows Google events');
   check(!(await page.isVisible('#demoBanner')), 'runs linked to Google (not demo mode)');

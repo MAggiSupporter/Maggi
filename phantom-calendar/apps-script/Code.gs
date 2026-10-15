@@ -8,7 +8,16 @@
  * EASY SETUP (this one file is all you need):
  *   1. script.google.com → New project → delete what's there → paste this file
  *   2. Services (+) → "Google Calendar API" → Add
- *   3. Deploy → New deployment → Web app → Execute as: Me, Access: Only myself
+ *   3. Deploy → New deployment → Web app → Execute as: Me, Who has access: Anyone
+ *   4. Open the Web app link and choose a passcode
+ * "Anyone" means Google doesn't check which of your Google accounts is signed
+ * in (that check is what breaks when a browser has several accounts). Your
+ * passcode protects the calendar instead: every function below that touches
+ * it refuses to work without it.
+ *
+ * Forgot the passcode? Pick resetPasscode next to ▷ Run at the top of the
+ * editor, click Run, then open the app and choose a new one.
+ *
  * The app's screens download from the project's GitHub page each time you open
  * it, so fixes arrive on their own. To keep everything inside your account
  * instead, also add an HTML file named "Index" containing apps-script/Index.html.
@@ -17,6 +26,10 @@
  */
 
 var PC_SETTINGS_KEY = 'phantomCalendarSettings';
+var PC_PASS_KEY = 'phantomCalendarPasscode';
+var PC_FAIL_KEY = 'phantomCalendarFailures';
+var PC_MAX_TRIES = 8;
+var PC_LOCK_MS = 15 * 60 * 1000;
 var PC_MAX_PAGES = 10;
 
 /** Serves the app: the "Index" file if you added one, otherwise the built-in loader. */
@@ -34,11 +47,95 @@ function doGet() {
 }
 
 /* ------------------------------------------------------------------------ */
-/* Called by the app                                                         */
+/* Passcode                                                                  */
+/* ------------------------------------------------------------------------ */
+
+/** Whether a passcode has been chosen yet, and whether the calendar service is on. */
+function pcAuthState() {
+  var f = pcFailures_();
+  var now = Date.now();
+  return JSON.stringify({
+    hasPasscode: !!pcPass_(),
+    service: typeof Calendar !== 'undefined',
+    lockedForMs: f.until > now ? f.until - now : 0
+  });
+}
+
+/** First time only: choose the passcode. Returns this device's key. */
+function pcSetPasscode(passcode) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    if (pcPass_()) throw new Error('PC_AUTH: A passcode is already set. Enter it instead.');
+    pcValidPasscode_(passcode);
+    var rec = pcMakePass_(String(passcode));
+    pcProps_().setProperty(PC_PASS_KEY, JSON.stringify(rec));
+    return JSON.stringify({ token: pcToken_(rec) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Checks the passcode and returns this device's key. Too many wrong tries pause it for 15 minutes. */
+function pcUnlock(passcode) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var rec = pcPass_();
+    if (!rec) throw new Error('PC_AUTH_SETUP: No passcode has been chosen yet.');
+    var f = pcFailures_();
+    var now = Date.now();
+    if (f.until > now) {
+      throw new Error('PC_LOCKED: Too many wrong tries. Wait ' + Math.ceil((f.until - now) / 60000) + ' minutes, then try again.');
+    }
+    if (pcHashPass_(rec.salt, String(passcode == null ? '' : passcode)) !== rec.hash) {
+      f.count = (f.count || 0) + 1;
+      if (f.count >= PC_MAX_TRIES) { f.count = 0; f.until = now + PC_LOCK_MS; }
+      pcProps_().setProperty(PC_FAIL_KEY, JSON.stringify(f));
+      throw new Error(f.until > now ? 'PC_LOCKED: Too many wrong tries. Wait 15 minutes, then try again.' : 'PC_AUTH: That passcode is wrong.');
+    }
+    pcProps_().deleteProperty(PC_FAIL_KEY);
+    return JSON.stringify({ token: pcToken_(rec) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Changes the passcode. Every other device will ask for the new one. */
+function pcChangePasscode(token, newPasscode) {
+  pcAuth_(token);
+  pcValidPasscode_(newPasscode);
+  var rec = pcMakePass_(String(newPasscode));
+  pcProps_().setProperty(PC_PASS_KEY, JSON.stringify(rec));
+  pcProps_().deleteProperty(PC_FAIL_KEY);
+  return JSON.stringify({ token: pcToken_(rec) });
+}
+
+/**
+ * Forgot your passcode? Run this from the Apps Script editor: pick
+ * resetPasscode next to ▷ Run, click Run. Then open the app and choose a new
+ * one. Only works for you (the owner); visitors to the app can't use it.
+ */
+function resetPasscode() {
+  var active = '', owner = '';
+  try {
+    active = Session.getActiveUser().getEmail();
+    owner = Session.getEffectiveUser().getEmail();
+  } catch (e) { /* not available */ }
+  if (!active || active !== owner) throw new Error('Only the owner can reset the passcode, from the Apps Script editor.');
+  pcProps_().deleteProperty(PC_PASS_KEY);
+  pcProps_().deleteProperty(PC_FAIL_KEY);
+  console.log('Passcode cleared. Open the app and choose a new one.');
+  return 'Passcode cleared. Open the app and choose a new one.';
+}
+
+/* ------------------------------------------------------------------------ */
+/* Called by the app (each needs this device's key)                          */
 /* ------------------------------------------------------------------------ */
 
 /** First call the app makes: who you are, your calendars, your saved settings. */
-function pcBootstrap() {
+function pcBootstrap(token) {
+  pcAuth_(token);
   pcCheck_();
   var calendars = pcListCalendars_();
   var primary = calendars.filter(function (c) { return c.primary; })[0];
@@ -46,7 +143,7 @@ function pcBootstrap() {
   var settings = null;
   try { settings = saved ? JSON.parse(saved) : null; } catch (e) { settings = null; }
   var email = '';
-  try { email = Session.getActiveUser().getEmail(); } catch (e) { /* not available */ }
+  try { email = Session.getEffectiveUser().getEmail(); } catch (e) { /* not available */ }
   return JSON.stringify({
     user: email || (primary ? primary.id : ''),
     timeZone: primary ? primary.timeZone : Session.getScriptTimeZone(),
@@ -56,7 +153,8 @@ function pcBootstrap() {
 }
 
 /** Your calendar list again, so calendars added in Google show up without a reload. */
-function pcCalendars() {
+function pcCalendars(token) {
+  pcAuth_(token);
   pcCheck_();
   return JSON.stringify({ calendars: pcListCalendars_() });
 }
@@ -67,7 +165,8 @@ function pcCalendars() {
  * If a window's events are unchanged since the hash the app sent, only the
  * hash comes back, which keeps the every-30-seconds check cheap.
  */
-function pcSync(reqJson) {
+function pcSync(token, reqJson) {
+  pcAuth_(token);
   pcCheck_();
   var req = JSON.parse(reqJson);
   var out = { windows: {}, errors: [], serverTime: new Date().toISOString() };
@@ -87,7 +186,8 @@ function pcSync(reqJson) {
 }
 
 /** Creates an event. resource is a Google Calendar event resource. */
-function pcCreateEvent(calId, resourceJson) {
+function pcCreateEvent(token, calId, resourceJson) {
+  pcAuth_(token);
   pcCheck_();
   var ev = Calendar.Events.insert(JSON.parse(resourceJson), calId);
   return JSON.stringify(pcSlim_(ev, calId));
@@ -101,7 +201,8 @@ function pcCreateEvent(calId, resourceJson) {
  * opts.dayShift say how far that occurrence moved, and the series moves the
  * same amount. opts.moveTo moves the event to another calendar.
  */
-function pcUpdateEvent(calId, eventId, patchJson, optsJson) {
+function pcUpdateEvent(token, calId, eventId, patchJson, optsJson) {
+  pcAuth_(token);
   pcCheck_();
   var patch = JSON.parse(patchJson || '{}');
   var opts = JSON.parse(optsJson || '{}');
@@ -140,14 +241,16 @@ function pcUpdateEvent(calId, eventId, patchJson, optsJson) {
 }
 
 /** Deletes an event (or one occurrence of a repeating event). */
-function pcDeleteEvent(calId, eventId) {
+function pcDeleteEvent(token, calId, eventId) {
+  pcAuth_(token);
   pcCheck_();
   Calendar.Events.remove(calId, eventId);
   return JSON.stringify({ ok: true });
 }
 
 /** Reads one event, e.g. the first event of a series to show its repeat rule. */
-function pcGetEvent(calId, eventId) {
+function pcGetEvent(token, calId, eventId) {
+  pcAuth_(token);
   pcCheck_();
   return JSON.stringify(pcSlim_(Calendar.Events.get(calId, eventId), calId));
 }
@@ -157,7 +260,8 @@ function pcGetEvent(calId, eventId) {
  * Upcoming matches come first, then the most recent past ones, so a search for
  * something that repeats every day still shows what's coming up.
  */
-function pcSearch(reqJson) {
+function pcSearch(token, reqJson) {
+  pcAuth_(token);
   pcCheck_();
   var req = JSON.parse(reqJson);
   var now = new Date();
@@ -188,7 +292,8 @@ function pcSearch(reqJson) {
 }
 
 /** Remembers your app settings (theme, sounds...) on your Google account. */
-function pcSaveSettings(settingsJson) {
+function pcSaveSettings(token, settingsJson) {
+  pcAuth_(token);
   var text = String(settingsJson);
   JSON.parse(text);
   if (text.length > 8500) throw new Error('Settings are too large to save.');
@@ -199,6 +304,62 @@ function pcSaveSettings(settingsJson) {
 /* ------------------------------------------------------------------------ */
 /* Helpers                                                                   */
 /* ------------------------------------------------------------------------ */
+
+function pcProps_() {
+  return PropertiesService.getScriptProperties();
+}
+
+function pcPass_() {
+  var raw = pcProps_().getProperty(PC_PASS_KEY);
+  if (!raw) return null;
+  try {
+    var rec = JSON.parse(raw);
+    return rec && rec.salt && rec.hash ? rec : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function pcFailures_() {
+  try {
+    var f = JSON.parse(pcProps_().getProperty(PC_FAIL_KEY) || '{}');
+    return { count: Number(f.count) || 0, until: Number(f.until) || 0 };
+  } catch (e) {
+    return { count: 0, until: 0 };
+  }
+}
+
+function pcValidPasscode_(passcode) {
+  var p = String(passcode == null ? '' : passcode);
+  if (p.length < 6) throw new Error('PC_WEAK: Use at least 6 characters.');
+  if (p.length > 200) throw new Error('PC_WEAK: Use at most 200 characters.');
+}
+
+function pcSha_(text) {
+  return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text, Utilities.Charset.UTF_8));
+}
+
+function pcHashPass_(salt, passcode) {
+  var h = salt + '|' + passcode;
+  for (var i = 0; i < 300; i++) h = pcSha_(salt + '|' + h);
+  return h;
+}
+
+function pcMakePass_(passcode) {
+  var salt = Utilities.getUuid() + Utilities.getUuid();
+  return { salt: salt, hash: pcHashPass_(salt, passcode) };
+}
+
+/** The key a device keeps after unlocking. It changes when the passcode changes. */
+function pcToken_(rec) {
+  return pcSha_('device-key|' + rec.salt + '|' + rec.hash);
+}
+
+function pcAuth_(token) {
+  var rec = pcPass_();
+  if (!rec) throw new Error('PC_AUTH_SETUP: Choose a passcode first.');
+  if (!token || String(token) !== pcToken_(rec)) throw new Error('PC_AUTH: This device needs your passcode.');
+}
 
 function pcCheck_() {
   if (typeof Calendar === 'undefined') {

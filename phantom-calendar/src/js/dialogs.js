@@ -598,6 +598,25 @@ function openSettings() {
     city.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveCity(); });
     body.append(sec('WEATHER (OPTIONAL, FROM OPEN-METEO)', h('div', { class: 'f-row' }, city, h('button', { class: 'jag-btn', onclick: saveCity }, 'SET')),
       h('div', { class: 'f-hint' }, 'Shows a weather icon on the date badge and on each day, Persona-style. Leave empty to turn it off.')));
+    if (App.backend.kind === 'google' && !App.backend.legacy) {
+      const np = h('input', { class: 'f-input', type: 'password', id: 'newPass', placeholder: 'New passcode', autocomplete: 'new-password', 'aria-label': 'New passcode', style: { maxWidth: '200px' } });
+      const np2 = h('input', { class: 'f-input', type: 'password', id: 'newPass2', placeholder: 'Type it again', autocomplete: 'new-password', 'aria-label': 'New passcode again', style: { maxWidth: '200px' } });
+      const change = async () => {
+        if (np.value.length < 6) { toast('Use at least 6 characters.', { kind: 'error' }); return; }
+        if (np.value !== np2.value) { toast('The two passcodes don\u2019t match.', { kind: 'error' }); return; }
+        try {
+          await App.backend.changePasscode(np.value);
+          np.value = ''; np2.value = '';
+          toast('Passcode changed. Your other devices will ask for the new one.');
+        } catch (e) {
+          toast('Couldn\u2019t change it: ' + errMsg(e), { kind: 'error' });
+        }
+      };
+      body.append(sec('PASSCODE',
+        h('div', { class: 'f-row' }, np, np2, h('button', { class: 'jag-btn', onclick: change }, 'CHANGE')),
+        h('div', { class: 'f-hint' }, 'Each device asks for it once. Change it if you think someone else has your app link: every device then has to enter the new one.'),
+        h('div', { style: { marginTop: '10px' } }, h('button', { class: 'jag-btn ghost', onclick: () => { closeAllLayers(); App.backend.saveKey(null); onDeviceLocked(); } }, icon('lock'), ' LOCK THIS DEVICE'))));
+    }
     if (App.backend.kind === 'demo') {
       body.append(sec('DEMO MODE', h('div', { class: 'f-hint', style: { marginBottom: '10px' } }, 'You’re looking at fake events stored in this browser. To use your real Google Calendar, follow README.md (about 5 minutes).'),
         h('button', { class: 'jag-btn', onclick: async () => {

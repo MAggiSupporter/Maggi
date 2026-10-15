@@ -10,17 +10,70 @@ function runningInAppsScript() {
   return typeof google !== 'undefined' && google && google.script && google.script.run;
 }
 
+const KEY_STORE = 'phantom-calendar-device-key';
+
 const GoogleBackend = {
   kind: 'google',
-  call(fn, ...args) {
+  token: null,
+  legacy: false, // an older Code.gs without the passcode lock
+
+  /** Calls a server function directly. */
+  raw(fn, ...args) {
     return new Promise((resolve, reject) => {
-      google.script.run
+      const run = google.script.run
         .withSuccessHandler((r) => {
           try { resolve(typeof r === 'string' ? JSON.parse(r) : r); } catch (e) { reject(e); }
         })
-        .withFailureHandler((err) => reject(err instanceof Error ? err : new Error(String((err && err.message) || err))))[fn](...args);
+        .withFailureHandler((err) => reject(err instanceof Error ? err : new Error(String((err && err.message) || err))));
+      if (typeof run[fn] !== 'function') { reject(new Error('Script function not found: ' + fn)); return; }
+      run[fn](...args);
     });
   },
+  /** Calls a calendar function, sending this device's key. */
+  call(fn, ...args) {
+    const p = this.legacy ? this.raw(fn, ...args) : this.raw(fn, this.token || '', ...args);
+    return p.catch((err) => {
+      if (isLockedOut(err) && typeof onDeviceLocked === 'function') onDeviceLocked();
+      throw err;
+    });
+  },
+  has(fn) {
+    try { return typeof google.script.run[fn] === 'function'; } catch (e) { return false; }
+  },
+
+  loadKey() {
+    try { this.token = localStorage.getItem(KEY_STORE) || this.token; } catch (e) { /* no storage: keep it in memory */ }
+  },
+  saveKey(token) {
+    this.token = token || null;
+    try {
+      if (token) localStorage.setItem(KEY_STORE, token);
+      else localStorage.removeItem(KEY_STORE);
+    } catch (e) { /* no storage: memory only */ }
+  },
+  async authState() {
+    if (!this.has('pcAuthState')) {
+      this.legacy = true;
+      return { legacy: true, hasPasscode: true, service: true, lockedForMs: 0 };
+    }
+    return this.raw('pcAuthState');
+  },
+  async setPasscode(passcode) {
+    const r = await this.raw('pcSetPasscode', passcode);
+    this.saveKey(r.token);
+    return r;
+  },
+  async unlock(passcode) {
+    const r = await this.raw('pcUnlock', passcode);
+    this.saveKey(r.token);
+    return r;
+  },
+  async changePasscode(passcode) {
+    const r = await this.call('pcChangePasscode', passcode);
+    this.saveKey(r.token);
+    return r;
+  },
+
   bootstrap() { return this.call('pcBootstrap'); },
   calendars() { return this.call('pcCalendars').then((r) => r.calendars); },
   sync(req) { return this.call('pcSync', JSON.stringify(req)); },
@@ -31,6 +84,11 @@ const GoogleBackend = {
   search(req) { return this.call('pcSearch', JSON.stringify(req)); },
   saveSettings(settings) { return this.call('pcSaveSettings', JSON.stringify(settings)); }
 };
+
+/** The device's key was refused (passcode changed on another device, or reset). */
+function isLockedOut(err) {
+  return /PC_AUTH/.test(String((err && err.message) || err));
+}
 
 /* ------------------------------------------------------------------------ */
 

@@ -1030,6 +1030,10 @@ kbd { min-width: 28px; padding: 3px 7px 1px; text-align: center; font: 16px/1 va
 .fatal-box code { background: var(--bg-3); padding: 1px 6px; }
 .fatal-msg { padding: 10px 12px; background: var(--bg-3); border-left: 6px solid var(--accent); font: 600 14px/1.4 ui-monospace, monospace; word-break: break-word; }
 .fatal-actions { display: flex; gap: 14px; margin-top: 22px; flex-wrap: wrap; }
+.gate-form { display: grid; gap: 10px; max-width: 380px; margin-top: 18px; }
+.gate-form .fatal-actions { margin-top: 8px; }
+.gate-form .f-input { background: var(--bg-3); color: var(--paper); font-size: 18px; }
+.gate-help { margin-top: 26px !important; font-size: 14px !important; color: var(--muted); }
 
 /* ---------------- motion settings ---------------- */
 [data-motion='off'] *, [data-motion='off'] *::before, [data-motion='off'] *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
@@ -1746,17 +1750,70 @@ function runningInAppsScript() {
   return typeof google !== 'undefined' && google && google.script && google.script.run;
 }
 
+const KEY_STORE = 'phantom-calendar-device-key';
+
 const GoogleBackend = {
   kind: 'google',
-  call(fn, ...args) {
+  token: null,
+  legacy: false, // an older Code.gs without the passcode lock
+
+  /** Calls a server function directly. */
+  raw(fn, ...args) {
     return new Promise((resolve, reject) => {
-      google.script.run
+      const run = google.script.run
         .withSuccessHandler((r) => {
           try { resolve(typeof r === 'string' ? JSON.parse(r) : r); } catch (e) { reject(e); }
         })
-        .withFailureHandler((err) => reject(err instanceof Error ? err : new Error(String((err && err.message) || err))))[fn](...args);
+        .withFailureHandler((err) => reject(err instanceof Error ? err : new Error(String((err && err.message) || err))));
+      if (typeof run[fn] !== 'function') { reject(new Error('Script function not found: ' + fn)); return; }
+      run[fn](...args);
     });
   },
+  /** Calls a calendar function, sending this device's key. */
+  call(fn, ...args) {
+    const p = this.legacy ? this.raw(fn, ...args) : this.raw(fn, this.token || '', ...args);
+    return p.catch((err) => {
+      if (isLockedOut(err) && typeof onDeviceLocked === 'function') onDeviceLocked();
+      throw err;
+    });
+  },
+  has(fn) {
+    try { return typeof google.script.run[fn] === 'function'; } catch (e) { return false; }
+  },
+
+  loadKey() {
+    try { this.token = localStorage.getItem(KEY_STORE) || this.token; } catch (e) { /* no storage: keep it in memory */ }
+  },
+  saveKey(token) {
+    this.token = token || null;
+    try {
+      if (token) localStorage.setItem(KEY_STORE, token);
+      else localStorage.removeItem(KEY_STORE);
+    } catch (e) { /* no storage: memory only */ }
+  },
+  async authState() {
+    if (!this.has('pcAuthState')) {
+      this.legacy = true;
+      return { legacy: true, hasPasscode: true, service: true, lockedForMs: 0 };
+    }
+    return this.raw('pcAuthState');
+  },
+  async setPasscode(passcode) {
+    const r = await this.raw('pcSetPasscode', passcode);
+    this.saveKey(r.token);
+    return r;
+  },
+  async unlock(passcode) {
+    const r = await this.raw('pcUnlock', passcode);
+    this.saveKey(r.token);
+    return r;
+  },
+  async changePasscode(passcode) {
+    const r = await this.call('pcChangePasscode', passcode);
+    this.saveKey(r.token);
+    return r;
+  },
+
   bootstrap() { return this.call('pcBootstrap'); },
   calendars() { return this.call('pcCalendars').then((r) => r.calendars); },
   sync(req) { return this.call('pcSync', JSON.stringify(req)); },
@@ -1767,6 +1824,11 @@ const GoogleBackend = {
   search(req) { return this.call('pcSearch', JSON.stringify(req)); },
   saveSettings(settings) { return this.call('pcSaveSettings', JSON.stringify(settings)); }
 };
+
+/** The device's key was refused (passcode changed on another device, or reset). */
+function isLockedOut(err) {
+  return /PC_AUTH/.test(String((err && err.message) || err));
+}
 
 /* ------------------------------------------------------------------------ */
 
@@ -2454,8 +2516,12 @@ async function syncNow() {
     App.syncErrors = res.errors && res.errors.length ? res.errors : null;
     if (changed) requestRender();
   } catch (err) {
-    if (!App.offline) toast("Couldn't reach Google Calendar. Retrying… (" + errMsg(err) + ')', { kind: 'error' });
-    App.offline = true;
+    if (App.backend.kind === 'google' && isLockedOut(err)) {
+      // the passcode screen is showing; syncing resumes once it's entered
+    } else {
+      if (!App.offline) toast("Couldn't reach Google Calendar. Retrying… (" + errMsg(err) + ')', { kind: 'error' });
+      App.offline = true;
+    }
   } finally {
     App.syncing = false;
     updateSyncChip();
@@ -4258,6 +4324,25 @@ function openSettings() {
     city.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveCity(); });
     body.append(sec('WEATHER (OPTIONAL, FROM OPEN-METEO)', h('div', { class: 'f-row' }, city, h('button', { class: 'jag-btn', onclick: saveCity }, 'SET')),
       h('div', { class: 'f-hint' }, 'Shows a weather icon on the date badge and on each day, Persona-style. Leave empty to turn it off.')));
+    if (App.backend.kind === 'google' && !App.backend.legacy) {
+      const np = h('input', { class: 'f-input', type: 'password', id: 'newPass', placeholder: 'New passcode', autocomplete: 'new-password', 'aria-label': 'New passcode', style: { maxWidth: '200px' } });
+      const np2 = h('input', { class: 'f-input', type: 'password', id: 'newPass2', placeholder: 'Type it again', autocomplete: 'new-password', 'aria-label': 'New passcode again', style: { maxWidth: '200px' } });
+      const change = async () => {
+        if (np.value.length < 6) { toast('Use at least 6 characters.', { kind: 'error' }); return; }
+        if (np.value !== np2.value) { toast('The two passcodes don\u2019t match.', { kind: 'error' }); return; }
+        try {
+          await App.backend.changePasscode(np.value);
+          np.value = ''; np2.value = '';
+          toast('Passcode changed. Your other devices will ask for the new one.');
+        } catch (e) {
+          toast('Couldn\u2019t change it: ' + errMsg(e), { kind: 'error' });
+        }
+      };
+      body.append(sec('PASSCODE',
+        h('div', { class: 'f-row' }, np, np2, h('button', { class: 'jag-btn', onclick: change }, 'CHANGE')),
+        h('div', { class: 'f-hint' }, 'Each device asks for it once. Change it if you think someone else has your app link: every device then has to enter the new one.'),
+        h('div', { style: { marginTop: '10px' } }, h('button', { class: 'jag-btn ghost', onclick: () => { closeAllLayers(); App.backend.saveKey(null); onDeviceLocked(); } }, icon('lock'), ' LOCK THIS DEVICE'))));
+    }
     if (App.backend.kind === 'demo') {
       body.append(sec('DEMO MODE', h('div', { class: 'f-hint', style: { marginBottom: '10px' } }, 'You’re looking at fake events stored in this browser. To use your real Google Calendar, follow README.md (about 5 minutes).'),
         h('button', { class: 'jag-btn', onclick: async () => {
@@ -4582,7 +4667,8 @@ async function boot() {
   bootText('TAKE YOUR TIME');
   App.backend = pickBackend();
   try {
-    const b = await App.backend.bootstrap();
+    if (App.backend.kind === 'google') await ensureUnlocked();
+    const b = await bootstrapWithKey();
     App.user = b.user || '';
     if (b.settings && App.backend.kind === 'google') {
       App.settings = Object.assign({}, DEFAULT_SETTINGS, b.settings);
@@ -4599,6 +4685,108 @@ async function boot() {
   } catch (err) {
     showFatal(err);
   }
+}
+
+/* ---------------- passcode ---------------- */
+async function ensureUnlocked() {
+  App.backend.loadKey();
+  const st = await App.backend.authState();
+  if (st.legacy) return;
+  if (!st.service) throw new Error('PC_NO_SERVICE: The "Google Calendar API" service is not turned on for this script.');
+  if (!st.hasPasscode) {
+    App.backend.saveKey(null);
+    await passcodeGate('setup');
+  } else if (!App.backend.token) {
+    await passcodeGate('unlock', st);
+  }
+}
+
+async function bootstrapWithKey() {
+  try {
+    return await App.backend.bootstrap();
+  } catch (err) {
+    if (App.backend.kind !== 'google' || !isLockedOut(err)) throw err;
+    App.backend.saveKey(null);
+    await passcodeGate(/PC_AUTH_SETUP/.test(err.message) ? 'setup' : 'unlock');
+    return App.backend.bootstrap();
+  }
+}
+
+let gateOpen = false;
+/** The key stopped working while the app was open: ask for the passcode again. */
+function onDeviceLocked() {
+  if (gateOpen || !App.ready) return;
+  gateOpen = true;
+  App.backend.saveKey(null);
+  closeAllLayers();
+  passcodeGate('unlock').then(() => {
+    gateOpen = false;
+    syncNow();
+    refreshCalendars();
+  });
+}
+
+/** The passcode screen. mode 'setup' chooses one, 'unlock' enters it. Resolves once this device has its key. */
+function passcodeGate(mode, info) {
+  return new Promise((resolve) => {
+    $('#boot').classList.add('is-out');
+    const setup = mode === 'setup';
+    const pass = h('input', {
+      class: 'f-input', type: 'password', id: 'gatePass', 'aria-label': setup ? 'New passcode' : 'Passcode',
+      autocomplete: setup ? 'new-password' : 'current-password', placeholder: setup ? 'Choose a passcode' : 'Passcode'
+    });
+    const again = setup ? h('input', { class: 'f-input', type: 'password', id: 'gatePass2', 'aria-label': 'Passcode again', autocomplete: 'new-password', placeholder: 'Type it again' }) : null;
+    const err = h('div', { class: 'f-err', hidden: true, role: 'alert' });
+    const label = setup ? 'LOCK IT IN' : 'UNLOCK';
+    const btn = h('button', { class: 'jag-btn primary', type: 'submit' }, label);
+    const show = (text) => { err.textContent = text; err.hidden = false; Sfx.play('error'); };
+    const node = h('div', { class: 'fatal gate', role: 'dialog', 'aria-label': setup ? 'Choose a passcode' : 'Enter your passcode' });
+    const done = () => {
+      Sfx.play('select');
+      node.remove();
+      if (!App.ready) { $('#boot').hidden = false; $('#boot').classList.remove('is-out'); bootText('BREAKING IN', 'Reading your calendar…'); }
+      resolve();
+    };
+    const form = h('form', {
+      class: 'gate-form',
+      onsubmit: async (e) => {
+        e.preventDefault();
+        const p = pass.value;
+        if (setup) {
+          if (p.length < 6) return show('Use at least 6 characters.');
+          if (p !== again.value) return show('The two passcodes don\u2019t match.');
+        } else if (!p) return show('Type your passcode.');
+        btn.disabled = true;
+        btn.textContent = 'CHECKING…';
+        try {
+          if (setup) await App.backend.setPasscode(p);
+          else await App.backend.unlock(p);
+          done();
+        } catch (er) {
+          const m = String((er && er.message) || er);
+          if (/PC_AUTH_SETUP/.test(m)) { node.remove(); passcodeGate('setup').then(resolve); return; }
+          if (/already set/.test(m)) { node.remove(); passcodeGate('unlock').then(resolve); return; }
+          show(errMsg(er));
+          pass.value = '';
+          pass.focus();
+        } finally {
+          btn.disabled = false;
+          btn.textContent = label;
+        }
+      }
+    }, pass, again, err, h('div', { class: 'fatal-actions' }, btn));
+    const box = h('div', { class: 'fatal-box' },
+      ransom(setup ? 'CHOOSE A PASSCODE' : 'SHOW YOUR CARD', { seed: mode }),
+      setup
+        ? h('p', null, 'Your app link opens in any browser now, whichever Google account is signed in. A passcode keeps your calendar yours: even someone who gets hold of the link can\u2019t get in without it. Use at least 6 characters. Each device asks once, then remembers.')
+        : h('p', null, 'Enter your passcode to unlock this device. It\u2019ll remember, so you only do this once here.'),
+      form,
+      setup ? null : h('p', { class: 'gate-help' }, 'Forgot it? Open your project at script.google.com, pick ', h('b', null, 'resetPasscode'), ' in the list next to ', h('b', null, '▷ Run'), ', click ', h('b', null, 'Run'), ', then reload this page and choose a new one.'));
+    node.append(box);
+    document.body.append(node);
+    if (info && info.lockedForMs) show('Too many wrong tries. Wait ' + Math.ceil(info.lockedForMs / 60000) + ' minutes, then try again.');
+    pass.focus();
+  });
 }
 
 let started = false;
