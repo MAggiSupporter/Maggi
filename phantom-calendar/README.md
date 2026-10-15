@@ -160,9 +160,12 @@ it. Only if `Code.gs` itself changes (it's rare, and the README will say so):
 - **A screen says "SECURITY ALERT" and mentions permission.** A box was left unticked in
   Step 5. In the Apps Script editor, pick **pcBootstrap** in the list next to **▷ Run** at the
   top, click **Run**, then **Review permissions**, tick every box and allow. Reload the app.
-- **"Sorry, unable to open the file at this time"** or a blank page. You're probably signed
-  in to **several Google accounts** at once (a known Google problem). Open the link in a
-  private/incognito window and sign in only to the account you used in Step 2.
+- **"Sorry, unable to open the file at present"** (or "…at this time"), or a blank page.
+  You're probably signed in to **several Google accounts** at once (a known Google problem).
+  Open the link in a private/incognito window (Chrome: **Ctrl+Shift+N**, Mac: **⌘+Shift+N**)
+  and sign in only to the account you used in Step 2. Also check you copied the **Web app**
+  link: it starts with `https://script.google.com/macros/s/` and ends with `/exec`. You can
+  copy it again from **Deploy → Manage deployments**.
 - **"Script function not found: doGet".** The code wasn't saved, or not all of it was
   pasted. Redo Steps 1 and 2 and press **Ctrl+S**, then publish a new version (see above).
 - **"Couldn't download the app."** The app's screens come from GitHub, so you need to be
