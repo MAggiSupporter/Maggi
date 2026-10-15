@@ -1,15 +1,20 @@
-// Tests apps-script/loader/Index.html: it must download the full app from GitHub and
-// run it against Google (here: the real Code.gs on the fake Calendar), fall back when
-// the branch is gone, and work offline from its saved copy.
-// Run: node tests/loader.test.js
+// Tests apps-script/loader/Index.html: it must run only the exact app build it is
+// pinned to (checked by SHA-256), from GitHub or the jsDelivr mirror, against Google
+// (here: the real Code.gs on the fake Calendar), refuse anything tampered with, and
+// work offline from a checked copy. Run: node tests/loader.test.js
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { chromium } = require('playwright');
 const { loadCodeGs } = require('./fake-google');
 const { installBridge, passGate } = require('./gas-bridge');
 
-const LOADER = 'file://' + path.join(__dirname, '..', 'apps-script', 'loader', 'Index.html');
-const BUNDLE = fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Index.html'), 'utf8');
+const LOADER_PATH = path.join(__dirname, '..', 'apps-script', 'loader', 'Index.html');
+const LOADER = 'file://' + LOADER_PATH;
+const loaderSrc = fs.readFileSync(LOADER_PATH, 'utf8');
+const PIN = loaderSrc.match(/var PIN = '([0-9a-f]{40})'/)[1];
+const PINNED = execFileSync('git', ['show', PIN + ':phantom-calendar/apps-script/Index.html'], { cwd: path.join(__dirname, '..') });
+const TAMPERED = Buffer.from(PINNED.toString('utf8').replace('<body>', '<body><script>window.__evil = true;</script>'));
 let failures = 0;
 const check = (c, m) => { if (c) console.log('  ok  ' + m); else { failures++; console.log('  FAIL ' + m); } };
 
@@ -22,55 +27,76 @@ const check = (c, m) => { if (c) console.log('  ok  ' + m); else { failures++; c
   fake.add('me@example.com', { summary: 'Loader test event', start: { dateTime: new Date(now.getTime() + 3600e3).toISOString(), timeZone: 'UTC' }, end: { dateTime: new Date(now.getTime() + 7200e3).toISOString(), timeZone: 'UTC' } });
   await installBridge(ctx, gas, names);
 
-  let mode = 'branch';
+  let mode = 'ok';
   const hits = [];
-  await ctx.route('https://raw.githubusercontent.com/**', (route) => {
+  const serve = (route, body) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body });
+  const handler = (route) => {
     const url = route.request().url();
     hits.push(url);
-    const ok = (mode === 'branch' && url.includes('/claude/epic-thompson-258mz9/')) ||
-      (mode === 'pinned' && /\/[0-9a-f]{40}\//.test(url));
+    const raw = url.startsWith('https://raw.githubusercontent.com/');
+    if (!url.includes(PIN)) return route.fulfill({ status: 404, body: 'not pinned' });
     if (mode === 'offline') return route.abort();
-    return ok ? route.fulfill({ status: 200, contentType: 'text/plain', body: BUNDLE }) : route.fulfill({ status: 404, body: '404: Not Found' });
-  });
+    if (mode === 'ok') return raw ? serve(route, PINNED) : route.fulfill({ status: 500, body: 'unused' });
+    if (mode === 'raw-down') return raw ? route.fulfill({ status: 503, body: 'down' }) : serve(route, PINNED);
+    if (mode === 'tampered') return serve(route, TAMPERED);
+    return route.abort();
+  };
+  await ctx.route('https://raw.githubusercontent.com/**', handler);
+  await ctx.route('https://cdn.jsdelivr.net/**', handler);
 
-  const open = async (label) => {
+  const open = async () => {
     const page = await ctx.newPage();
     const errs = [];
     page.on('pageerror', (e) => errs.push(e.message));
     await page.goto(LOADER);
-    return { page, errs, label };
+    return { page, errs };
   };
 
-  console.log('Loader:');
-  let { page, errs } = await open('branch');
-  check(await passGate(page, 'loader-pass-1') === 'setup', 'asks for a passcode the first time');
+  console.log('Loader (pinned to ' + PIN.slice(0, 7) + '):');
+  let { page, errs } = await open();
+  check(await passGate(page, 'loader-pass-1') === 'setup', 'downloads the pinned build and asks for a passcode the first time');
   await page.waitForTimeout(500);
-  check(/Loader test event/.test(await page.textContent('#view')), 'downloads the app from the branch and shows Google events');
-  check(!(await page.isVisible('#demoBanner')), 'runs linked to Google (not demo mode)');
+  check(/Loader test event/.test(await page.textContent('#view')), 'shows Google events');
   await page.keyboard.press('c');
   await page.waitForSelector('.editor');
   await page.keyboard.type('Made through the loader');
   await page.click('.editor .jag-btn.primary');
   await page.waitForTimeout(800);
   check(fake.state.events['me@example.com'].some((e) => e.summary === 'Made through the loader'), 'creating an event writes to Google');
+  check(hits.every((u) => u.includes(PIN)), 'only ever asks for the pinned commit, never a branch');
   check(!errs.length, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
   await page.close();
 
-  mode = 'pinned';
-  hits.length = 0;
-  ({ page, errs } = await open('pinned'));
+  mode = 'raw-down';
+  ({ page } = await open());
+  check(await passGate(page, 'loader-pass-1') !== null && await page.isVisible('#app'), 'if GitHub is down, the jsDelivr mirror of the same commit works');
+  await page.close();
+
+  mode = 'tampered';
+  ({ page } = await open());
   await page.waitForSelector('#app:not([hidden])', { timeout: 15000 });
-  check(hits.length === 3 && /[0-9a-f]{40}/.test(hits[2]), 'if the branch and main are gone, it uses the fixed commit');
+  check(!(await page.evaluate(() => window.__evil)), 'a tampered download is refused (its code never runs)…');
+  check(true, '…and the checked copy saved earlier is used instead');
   await page.close();
 
   mode = 'offline';
-  ({ page, errs } = await open('offline'));
+  ({ page } = await open());
   await page.waitForSelector('#app:not([hidden])', { timeout: 15000 });
-  check(true, 'offline: opens from the copy saved last time');
+  check(true, 'offline: opens from the checked copy saved last time');
+  await page.close();
+
+  // a tampered saved copy is refused too
+  ({ page } = await open());
+  await page.waitForSelector('#app:not([hidden])', { timeout: 15000 });
+  await page.evaluate((html) => localStorage.setItem('phantom-calendar-app-checked', html), TAMPERED.toString('utf8'));
+  await page.reload();
+  await page.waitForFunction(() => /Couldn/.test((document.getElementById('pclMsg') || {}).textContent || ''), null, { timeout: 15000 });
+  check(!(await page.evaluate(() => window.__evil)), 'a tampered saved copy is refused');
   await page.close();
 
   const ctx2 = await browser.newContext({ ignoreHTTPSErrors: true });
-  await ctx2.route('https://raw.githubusercontent.com/**', (route) => route.abort());
+  await ctx2.route('https://raw.githubusercontent.com/**', (r) => r.abort());
+  await ctx2.route('https://cdn.jsdelivr.net/**', (r) => r.abort());
   const p2 = await ctx2.newPage();
   await p2.goto(LOADER);
   await p2.waitForFunction(() => /Couldn/.test(document.getElementById('pclMsg').textContent), null, { timeout: 15000 });

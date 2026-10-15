@@ -113,8 +113,8 @@ gets in without the secret link **and** the passcode.
 > calendar is never open without the passcode.
 
 > **Want everything stored inside your account?** By default the app's screens download from
-> this GitHub page each time you open it, which is how you get fixes automatically. To keep a
-> fixed copy instead: in the Apps Script editor click **+** next to **Files** → **HTML**, name
+> GitHub: always one exact version, checked against a fingerprint built into `Code.gs`, so
+> nobody can swap in different code. To keep a copy inside your account instead: in the Apps Script editor click **+** next to **Files** → **HTML**, name
 > it `Index`, and paste in [the app file](https://github.com/MAggiSupporter/Maggi/blob/claude/epic-thompson-258mz9/phantom-calendar/apps-script/Index.html) (use **Copy raw file**). Then do
 > Deploy → Manage deployments → ✏️ → Version: **New version** → Deploy.
 
@@ -169,20 +169,27 @@ your phone and computer match.
 
 ## Updating to a newer version
 
-Mostly you don't have to: the app's screens download fresh from GitHub each time you open
-it. Only if `Code.gs` itself changes (it's rare, and the README will say so):
+Your app stays on the exact version you installed until you update it. To update:
 
 1. Copy the new code from the Step 1 link and paste it over the old code. Press **Ctrl+S**.
 2. Click **Deploy → Manage deployments**, click the ✏️ pencil, set **Version** to
-   **New version**, and click **Deploy**. Your link stays the same.
-
+   **New version**, and click **Deploy**. Your link and passcode stay the same.
 
 ## If something goes wrong
 
 - **Forgot your passcode.** Open your project at script.google.com, pick **resetPasscode**
-  in the list next to **▷ Run** at the top, and click **Run**. Then open the app and choose a
-  new one. (Only you can do this: it doesn't work from the app link.)
-- **"Too many wrong tries."** After 8 wrong passcodes the app pauses for 15 minutes.
+  in the list next to **▷ Run** at the top, and click **Run**. The log at the bottom shows a
+  **temporary passcode**. Type it into the app, which then asks you to choose a new one.
+  Every device is signed out. (Only you can do this: it doesn't work from the app link.)
+- **"Too many wrong tries."** After 8 wrong passcodes, unlocking pauses for 15 minutes.
+  Devices you've already unlocked keep working. If it wasn't you, someone has your link:
+  make a new deployment (Step 4) and delete the old one in **Deploy → Manage deployments**.
+- **A red "UPDATE NEEDED" bar.** Your Code.gs is an old copy without the passcode lock. If
+  **Who has access** is **Anyone**, set it back to **Only myself** until you've pasted the
+  new code (Step 1) and deployed a new version.
+- **The passcode screen says one was "already chosen".** That happens if someone else
+  opened your link first. Run **resetPasscode** (above), then make a new deployment so the
+  old link stops working.
 - **Think someone else has your link?** In the app, open the Hideout (⚙️) and **change the
   passcode**. Every device then has to enter the new one. You can also make a new deployment
   (Step 4) to get a new link, and delete the old one in **Deploy → Manage deployments**.
@@ -228,8 +235,9 @@ it. Only if `Code.gs` itself changes (it's rare, and the README will say so):
 Everything stays between you and Google. Your calendar is locked behind your passcode; the
 passcode itself is never stored, only a salted hash of it in your script's settings. The code that touches your calendar is
 `Code.gs`, which you can read, and it runs inside your Google account. The app uses no
-server of its own and has no tracking. Besides Google, it contacts GitHub (to download its
-screens, unless you added your own `Index` file), Google Fonts (for the lettering), and,
+server of its own and has no tracking. Besides Google, it contacts GitHub or its
+mirror jsDelivr (to download its screens: one fixed version, checked by fingerprint, unless you
+added your own `Index` file), Google Fonts (for the lettering), and,
 only if you turn weather on, Open-Meteo, which receives the city name you type.
 
 ---
@@ -238,7 +246,8 @@ only if you turn weather on, Open-Meteo, which receives the city name you type.
 
 `apps-script/Code.gs` is the only file people need to paste: it carries a small loader page
 (`apps-script/loader/Index.html`, copied in by the build) that downloads the full app from
-this repo, falls back to a fixed commit, and keeps a copy for offline use.
+one pinned commit of this repo and runs it only if its SHA-256 matches. To release: build,
+commit `apps-script/Index.html`, then `node tools/pin.mjs <that commit>` and commit again.
 
 The app's source is in `src/`: `index.html`, `styles.css`, and `js/`. The JavaScript is split
 into utilities, effects, the Google/demo connection, state and sync, views, dialogs and
