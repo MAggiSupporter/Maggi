@@ -166,6 +166,12 @@ it. Only if `Code.gs` itself changes (it's rare, and the README will say so):
   and sign in only to the account you used in Step 2. Also check you copied the **Web app**
   link: it starts with `https://script.google.com/macros/s/` and ends with `/exec`. You can
   copy it again from **Deploy → Manage deployments**.
+- **Clicking "Authorize access" shows "Sorry, unable to open the file" instead of the
+  permission screen.** Same cause: several Google accounts are signed in, and Google's
+  pop-up used the wrong one. Open a private/incognito window, go to script.google.com, sign
+  in with only your calendar account, open the **Phantom Calendar** project, and redo Steps 4
+  and 5 there. If the project isn't in that list, it was saved to your other account: redo
+  Steps 1–3 in the private window too.
 - **"Script function not found: doGet".** The code wasn't saved, or not all of it was
   pasted. Redo Steps 1 and 2 and press **Ctrl+S**, then publish a new version (see above).
 - **"Couldn't download the app."** The app's screens come from GitHub, so you need to be
