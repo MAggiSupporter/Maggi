@@ -173,7 +173,7 @@ function loadCodeGs(opts) {
   });
   const sandbox = {
     Calendar: opts.noService ? undefined : fake.Calendar,
-    HtmlService: { createHtmlOutputFromFile() { return this; }, createHtmlOutput() { return this; }, setTitle() { return this; }, addMetaTag() { return this; }, setXFrameOptionsMode() { return this; }, XFrameOptionsMode: { DEFAULT: 'DEFAULT' } },
+    HtmlService: { createHtmlOutputFromFile() { return this; }, createHtmlOutput() { return this; }, setFaviconUrl(u) { this.favicon = u; return this; }, setTitle() { return this; }, addMetaTag() { return this; }, setXFrameOptionsMode() { return this; }, XFrameOptionsMode: { DEFAULT: 'DEFAULT' } },
     PropertiesService: { getUserProperties: () => store(props), getScriptProperties: () => store(scriptProps) },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     Session: {

@@ -31,6 +31,7 @@ var PC_FAIL_KEY = 'phantomCalendarFailures';
 var PC_MAX_TRIES = 8;
 var PC_LOCK_MS = 15 * 60 * 1000;
 var PC_MAX_PAGES = 10;
+var PC_ICON_URL = 'https://raw.githubusercontent.com/MAggiSupporter/Maggi/7fb93a83a8d1a81a4d160296a8738e1375f007c6/phantom-calendar/icons/icon-192.png';
 
 /** Serves the app: the "Index" file if you added one, otherwise the built-in loader. */
 function doGet() {
@@ -40,6 +41,9 @@ function doGet() {
   } catch (e) {
     page = HtmlService.createHtmlOutput(PC_LOADER_HTML);
   }
+  try {
+    page.setFaviconUrl(PC_ICON_URL); // the icon for the browser tab and installed app
+  } catch (e) { /* the icon is optional */ }
   return page
     .setTitle('Phantom Calendar')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
@@ -623,7 +627,7 @@ var PC_LOADER_HTML = [
   "  var SOURCES = [",
   "    BASE + 'claude/epic-thompson-258mz9' + PATH,",
   "    BASE + 'main' + PATH,",
-  "    BASE + '27033804290bf56052b42d0d6a27d2eb8fd1b0a0' + PATH",
+  "    BASE + '7fb93a83a8d1a81a4d160296a8738e1375f007c6' + PATH",
   "  ];",
   "  var CACHE_KEY = 'phantom-calendar-app-copy';",
   "",
