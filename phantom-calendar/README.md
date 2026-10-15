@@ -1,3 +1,5 @@
+<img src="icons/icon-192.png" alt="Phantom Calendar icon" width="120" align="right">
+
 # PHANTOM CALENDAR
 
 **Your Google Calendar, styled like a Phantom Thieves heist.** Red, black and paper-white.
